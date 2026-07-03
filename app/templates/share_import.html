@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title %}Freigaben importieren – {{ app_name }}{% endblock %}
+{% block page_heading %}Freigaben importieren{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Aus smb.conf importieren</h1>
+  <p class="lead">
+    Bestehende Freigaben aus <code>/etc/samba/smb.conf</code> nach
+    <code>smb-shares.conf</code> übernehmen – ohne Daten zu löschen.
+  </p>
+</div>
+
+{% if list_error %}
+<div class="notice notice-error" role="alert">
+  <span class="toast-icon" aria-hidden="true">!</span>
+  <span>{{ list_error }}</span>
+</div>
+{% endif %}
+
+{% if error %}
+<div class="notice notice-error" role="alert">
+  <span class="toast-icon" aria-hidden="true">!</span>
+  <span>{{ error }}</span>
+</div>
+{% endif %}
+
+{% if importable %}
+<div class="card">
+  <div class="card-header">
+    <span class="card-title">Importierbare Freigaben</span>
+    <span class="badge warn">{{ importable|length }}</span>
+  </div>
+  <p class="hint" style="margin-bottom:1rem">
+    Basisverzeichnis für Pfadprüfung: <code>{{ shares_base }}</code>.
+    Freigaben außerhalb dieses Pfads können nicht importiert werden.
+  </p>
+
+  <form method="post" action="{{ url_for('share_import') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th style="width:2.5rem"></th>
+            <th>Name</th>
+            <th>Pfad</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for share in importable %}
+          <tr>
+            <td>
+              <input type="checkbox"
+                     name="share_names"
+                     value="{{ share.name }}"
+                     id="import-{{ loop.index }}"
+                     {% if not share.within_base %}disabled{% else %}checked{% endif %}>
+            </td>
+            <td><label for="import-{{ loop.index }}"><code>{{ share.name }}</code></label></td>
+            <td><code>{{ share.path }}</code></td>
+            <td>
+              {% if share.within_base %}
+                <span class="badge ok">Bereit</span>
+              {% else %}
+                <span class="badge off">Außerhalb Basis</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <label class="checkbox-row" style="display:flex;align-items:center;gap:0.5rem;margin:1rem 0">
+      <input type="checkbox" name="comment_out_source" checked>
+      <span>Importierte Abschnitte in <code>smb.conf</code> auskommentieren (empfohlen, vermeidet Duplikate)</span>
+    </label>
+
+    <div class="btn-group">
+      <button type="submit" class="btn btn-primary">Ausgewählte importieren</button>
+      <a href="{{ url_for('index') }}" class="btn btn-secondary">Abbrechen</a>
+    </div>
+  </form>
+</div>
+{% elif not list_error %}
+<div class="card">
+  <p class="hint" style="margin:0">
+    Keine importierbaren Freigaben gefunden – entweder sind alle bereits in
+    <code>smb-shares.conf</code> oder <code>smb.conf</code> enthält keine Freigaben mit <code>path</code>.
+  </p>
+  <div class="btn-group" style="margin-top:1rem">
+    <a href="{{ url_for('index') }}" class="btn btn-secondary">Zurück</a>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

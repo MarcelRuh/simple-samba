@@ -10,6 +10,8 @@ Interne Web-Verwaltung für Samba-Freigaben auf Debian – klein, ohne Reverse P
 - System-Updates (`apt update`, `apt upgrade`, `apt autoremove`) mit Fortschrittsanzeige
 - Dashboard mit Speicher, Updates und Neustart-Status
 - **App-Update-Hinweis** – prüft GitHub auf neuere Versionen (Cache: 6 h)
+- **App-Update-Button** – GitHub-Update direkt aus der UI
+- **Import-Assistent** – bestehende Freigaben aus `smb.conf` übernehmen
 - CSRF-Schutz & Login-Rate-Limiting
 - Privilege-Daemon über Unix-Socket (kein sudo)
 
@@ -72,7 +74,32 @@ sudo bash install.sh
 
 Konfiguration: `/etc/simple-samba-ui/config.json`
 
+### Installation bei bestehendem Samba
+
+Simple Samba UI lässt sich **neben einer laufenden Samba-Installation** einrichten:
+
+| Was passiert | Details |
+|--------------|---------|
+| **Daten** | Bleiben unverändert |
+| **`smb.conf`** | Nur eine `include`-Zeile für `smb-shares.conf` am Ende |
+| **Bestehende Freigaben** | Bleiben aktiv; optional per UI importieren |
+| **Samba-Benutzer** | Werden nicht geändert |
+
+Optional vorher sichern:
+
+```bash
+sudo cp /etc/samba/smb.conf /etc/samba/smb.conf.bak.$(date +%F)
+```
+
+Nach der Installation: **Freigaben → Aus smb.conf importieren** – übernimmt bestehende Shares in die UI-Verwaltung.
+
 ## Updates
+
+### In der Web-UI (empfohlen)
+
+Unter **Updates → Simple Samba UI → Von GitHub aktualisieren**. Die App lädt den Quellcode und führt `update.sh` aus.
+
+### Manuell
 
 Nach Änderungen am Quellcode:
 
@@ -81,6 +108,10 @@ cd /usr/local/src/simple-samba   # oder dein Clone-Verzeichnis
 git pull
 sudo bash update.sh
 ```
+
+### Voraussetzung
+
+`git` wird bei der Installation automatisch mitinstalliert (für den Update-Button).
 
 ## Deinstallation
 

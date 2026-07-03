@@ -2,7 +2,7 @@
 # Gemeinsame Install-/Update-Logik für Simple Samba UI
 # Quellverzeichnis (Clone) → Deployment nach /opt/simple-samba-ui
 
-APP_VERSION="1.5.0"
+APP_VERSION="1.6.0"
 INSTALL_DIR="/opt/simple-samba-ui"
 CONFIG_DIR="/etc/simple-samba-ui"
 CONFIG_FILE="${CONFIG_DIR}/config.json"
@@ -28,7 +28,7 @@ require_root() {
 
 ensure_packages() {
     info "Prüfe Systempakete …"
-    local pkgs=(python3 python3-venv python3-pip samba samba-common-bin)
+    local pkgs=(python3 python3-venv python3-pip git samba samba-common-bin)
     local missing=()
     for pkg in "${pkgs[@]}"; do
         dpkg -s "${pkg}" &>/dev/null || missing+=("${pkg}")

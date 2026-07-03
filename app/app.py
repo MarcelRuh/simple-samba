@@ -24,6 +24,8 @@ from app.samba import (
     delete_samba_user,
     delete_share_directory,
     get_share_by_name,
+    import_shares,
+    list_importable_shares,
     list_samba_users,
     read_shares,
     reload_samba,
@@ -273,6 +275,46 @@ def create_app() -> Flask:
         except (ValidationError, SambaError) as exc:
             flash(str(exc), "error")
         return redirect(url_for("index"))
+
+    @app.route("/freigaben/importieren", methods=["GET", "POST"])
+    @login_required
+    def share_import():
+        config = load_config()
+        error = None
+        importable: list[dict] = []
+        list_error: str | None = None
+        shares_base = config.get("shares_base_path", "/srv/shares")
+
+        try:
+            data = list_importable_shares()
+            importable = data.get("importable") or []
+            list_error = data.get("error")
+            shares_base = data.get("shares_base_path") or shares_base
+        except SambaError as exc:
+            list_error = str(exc)
+
+        if request.method == "POST":
+            selected = request.form.getlist("share_names")
+            comment_out = request.form.get("comment_out_source") == "on"
+            try:
+                if not selected:
+                    raise ValidationError("Bitte mindestens eine Freigabe auswählen.")
+                import_shares(selected, comment_out_source=comment_out)
+                flash(
+                    f"{len(selected)} Freigabe(n) importiert und in smb-shares.conf übernommen.",
+                    "success",
+                )
+                return redirect(url_for("index"))
+            except (ValidationError, SambaError) as exc:
+                error = str(exc)
+
+        return render_template(
+            "share_import.html",
+            importable=importable,
+            list_error=list_error,
+            error=error,
+            shares_base=shares_base,
+        )
 
     @app.route("/shares/<path:share_name>/toggle", methods=["POST"])
     @login_required
