@@ -33,17 +33,36 @@
       {% if overview.disk_path %}<br><code>{{ overview.disk_path }}</code>{% endif %}
     </span>
   </div>
-  <div class="stat-card {% if overview.upgradable_count > 0 %}accent{% endif %}">
+  {% set has_updates = overview.upgradable_count > 0 or (app_update and app_update.update_available) %}
+  {% if has_updates %}
+  <a href="{{ url_for('system_updates') }}" class="stat-card stat-card-link accent" title="Zur Update-Seite">
     <span class="stat-label">Updates</span>
     <span class="stat-value">
       {% if overview.upgradable_count > 0 %}
         <span class="badge warn">{{ overview.upgradable_count }}</span>
-      {% else %}
-        <span class="badge ok">Aktuell</span>
+      {% elif app_update and app_update.update_available %}
+        <span class="badge warn">App</span>
       {% endif %}
+    </span>
+    <span class="stat-hint">
+      {% if overview.upgradable_count > 0 and app_update and app_update.update_available %}
+        {{ overview.upgradable_count }} Paket(e) · App v{{ app_update.latest_version }}
+      {% elif overview.upgradable_count > 0 %}
+        aktualisierbare Pakete · Klicken für Details
+      {% else %}
+        App-Update v{{ app_update.latest_version }} · Klicken für Details
+      {% endif %}
+    </span>
+  </a>
+  {% else %}
+  <div class="stat-card">
+    <span class="stat-label">Updates</span>
+    <span class="stat-value">
+      <span class="badge ok">Aktuell</span>
     </span>
     <span class="stat-hint">aktualisierbare Pakete</span>
   </div>
+  {% endif %}
   <div class="stat-card {% if overview.reboot_required %}accent{% endif %}">
     <span class="stat-label">Neustart</span>
     <span class="stat-value">

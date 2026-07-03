@@ -2,7 +2,7 @@
 # Gemeinsame Install-/Update-Logik für Simple Samba UI
 # Quellverzeichnis (Clone) → Deployment nach /opt/simple-samba-ui
 
-APP_VERSION="1.6.6"
+APP_VERSION="1.6.9"
 INSTALL_DIR="/opt/simple-samba-ui"
 CONFIG_DIR="/etc/simple-samba-ui"
 CONFIG_FILE="${CONFIG_DIR}/config.json"
@@ -51,7 +51,7 @@ resolve_access_host() {
 
 ensure_packages() {
     info "Prüfe Systempakete …"
-    local pkgs=(python3 python3-venv python3-pip git ca-certificates curl sudo samba samba-common-bin)
+    local pkgs=(python3 python3-venv python3-pip git ca-certificates wget sudo samba samba-common-bin)
     local missing=()
     for pkg in "${pkgs[@]}"; do
         dpkg -s "${pkg}" &>/dev/null || missing+=("${pkg}")
@@ -116,6 +116,42 @@ fix_smb_conf_include() {
     printf '\n# Simple Samba UI – verwaltete Freigaben\ninclude = /etc/samba/smb-shares.conf\n' >>"${SMB_CONF}"
 }
 
+detect_shares_base_from_smb_conf() {
+    local src_dir="$1"
+    if [[ -n "${SIMPLE_SAMBA_SHARES_BASE:-}" ]]; then
+        echo "${SIMPLE_SAMBA_SHARES_BASE}"
+        return 0
+    fi
+    if [[ ! -f "${SMB_CONF}" ]]; then
+        return 0
+    fi
+    PYTHONPATH="${src_dir}" python3 - <<'PY'
+import sys
+from pathlib import Path
+
+from app.smbconf_parser import infer_shares_base_path, parse_smb_conf_shares
+
+content = Path("/etc/samba/smb.conf").read_text(encoding="utf-8")
+shares = parse_smb_conf_shares(content)
+if not shares:
+    sys.exit(0)
+print(infer_shares_base_path([share.path for share in shares]))
+PY
+}
+
+auto_import_smb_shares() {
+    local script="${INSTALL_DIR}/scripts/bootstrap-import-shares.py"
+    if [[ ! -f "${script}" ]]; then
+        return 0
+    fi
+    info "Importiere bestehende Freigaben aus smb.conf …"
+    if "${INSTALL_DIR}/venv/bin/python3" "${script}"; then
+        return 0
+    fi
+    warn "Automatischer Freigabe-Import fehlgeschlagen (optional)."
+    return 0
+}
+
 _shares_base_from_config() {
     if [[ -f "${CONFIG_FILE}" ]]; then
         python3 -c "import json; print(json.load(open('${CONFIG_FILE}'))['shares_base_path'])" 2>/dev/null \
@@ -142,6 +178,7 @@ set_permissions() {
     chmod 750 "${INSTALL_DIR}"
     chmod 755 "${INSTALL_DIR}/scripts/simple-samba-ui-priv-daemon.py" 2>/dev/null || true
     chmod 755 "${INSTALL_DIR}/scripts/run-app-update.py" 2>/dev/null || true
+    chmod 755 "${INSTALL_DIR}/scripts/bootstrap-import-shares.py" 2>/dev/null || true
     mkdir -p "${CONFIG_DIR}" "${BACKUP_DIR}"
     chown -R samba-ui:samba-ui "${CONFIG_DIR}"
     chmod 750 "${CONFIG_DIR}"

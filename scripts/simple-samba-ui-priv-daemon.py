@@ -188,6 +188,27 @@ def _path_within_base(path_str: str, base: str) -> bool:
         return False
 
 
+def _update_config_shares_base(paths: list[str]) -> str:
+    from app.smbconf_parser import infer_shares_base_path
+
+    cfg = load_app_config()
+    current = str(cfg.get("shares_base_path") or "/srv/shares")
+    new_base = infer_shares_base_path(paths, default=current)
+    if cfg.get("shares_base_path") == new_base:
+        return new_base
+    cfg["shares_base_path"] = new_base
+    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    CONFIG_PATH.write_text(json.dumps(cfg, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    os.chmod(CONFIG_PATH, 0o600)
+    try:
+        uid = pwd.getpwnam("samba-ui").pw_uid
+        gid = pwd.getpwnam("samba-ui").pw_gid
+        os.chown(CONFIG_PATH, uid, gid)
+    except KeyError:
+        pass
+    return new_base
+
+
 def cmd_import_shares(body_text: str) -> tuple[bool, str]:
     _ensure_app_import_path()
     from app.smbconf_parser import comment_out_sections, parse_smb_conf_shares
@@ -212,16 +233,11 @@ def cmd_import_shares(body_text: str) -> tuple[bool, str]:
         missing = names - {share.name for share in selected}
         return False, f"Freigaben nicht in smb.conf gefunden: {', '.join(sorted(missing))}"
 
-    base = get_shares_base()
-    outside = [share.name for share in selected if not _path_within_base(share.path, str(base))]
-    if outside:
-        return False, (
-            f"Pfad liegt nicht unter {base}: {', '.join(outside)}. "
-            "Passe shares_base_path in der Konfiguration an oder verschiebe die Freigabe."
-        )
-
     shares_file = _shares_file_path()
     existing = read_shares(str(shares_file)) if shares_file.is_file() else []
+    all_paths = [share.path for share in existing] + [share.path for share in selected]
+    _update_config_shares_base(all_paths)
+
     merged: list[Share] = list(existing)
     for parsed in selected:
         if any(share.name.lower() == parsed.name.lower() for share in merged):

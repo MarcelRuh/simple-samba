@@ -148,7 +148,7 @@ def get_app_update_info(
     repo, branch, enabled, interval_hours = _settings(config)
     repo_url = f"https://github.com/{repo}"
     bootstrap_command = (
-        f"curl -fsSL https://raw.githubusercontent.com/{repo}/{branch}/bootstrap.sh | sudo bash"
+        f"wget -qO- https://raw.githubusercontent.com/{repo}/{branch}/bootstrap.sh | bash"
     )
     manual_command = "cd /usr/local/src/simple-samba && git pull && sudo bash update.sh"
 

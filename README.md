@@ -39,13 +39,7 @@ Gunicorn (User: samba-ui) – Flask-App
 
 ### One-Liner (empfohlen)
 
-Als **root** (curl und sudo werden bei Bedarf automatisch installiert):
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/MarcelRuh/simple-samba/main/bootstrap.sh | bash
-```
-
-Ohne curl:
+Als **root** (wget und sudo werden bei Bedarf automatisch installiert):
 
 ```bash
 wget -qO- https://raw.githubusercontent.com/MarcelRuh/simple-samba/main/bootstrap.sh | bash
@@ -54,12 +48,14 @@ wget -qO- https://raw.githubusercontent.com/MarcelRuh/simple-samba/main/bootstra
 Als normaler Benutzer mit sudo:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/MarcelRuh/simple-samba/main/bootstrap.sh | sudo bash
+wget -qO- https://raw.githubusercontent.com/MarcelRuh/simple-samba/main/bootstrap.sh | sudo bash
 ```
 
 Ohne sudo: zuerst `su -`, dann einen der Befehle oben als root.
 
 Das Script klont das Repository nach `/usr/local/src/simple-samba`, installiert Abhängigkeiten, legt die App unter `/opt/simple-samba-ui` ab, erstellt Admin-Zugangsdaten und startet systemd-Dienste.
+
+**Bestehendes Samba:** Freigaben aus `smb.conf` werden automatisch importiert. Liegen Pfade z. B. unter `/srv/raid5` statt `/srv/shares`, wird das Basisverzeichnis entsprechend erkannt und gespeichert.
 
 Die Web-UI ist danach unter der **normalen IP-Adresse** des Servers erreichbar (Standard: lauscht auf `0.0.0.0:8080`).
 
@@ -70,7 +66,7 @@ Am Ende werden **URL, Benutzername und Passwort** ausgegeben.
 ```bash
 SIMPLE_SAMBA_BIND_PORT=8080 \
 SIMPLE_SAMBA_SHARES_BASE=/srv/shares \
-curl -fsSL https://raw.githubusercontent.com/MarcelRuh/simple-samba/main/bootstrap.sh | bash
+wget -qO- https://raw.githubusercontent.com/MarcelRuh/simple-samba/main/bootstrap.sh | bash
 ```
 
 ### Manuell (git clone)
@@ -140,7 +136,7 @@ sudo bash uninstall.sh
 
 ```
 simple-samba/
-├── bootstrap.sh            # One-Liner-Einstieg (curl | bash)
+├── bootstrap.sh            # One-Liner-Einstieg (wget | bash)
 ├── install.sh / update.sh / uninstall.sh
 ├── app/                    # Flask-Anwendung
 ├── scripts/

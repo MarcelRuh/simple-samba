@@ -291,6 +291,22 @@ code {
   background: linear-gradient(135deg, rgba(99, 102, 241, 0.08), transparent);
 }
 
+a.stat-card-link {
+  text-decoration: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+a.stat-card-link:hover {
+  border-color: rgba(99, 102, 241, 0.45);
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.12);
+}
+
+a.stat-card-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 /* Flash / Toasts */
 .toast-stack {
   display: flex;
