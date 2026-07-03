@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  var PHASE_PROGRESS = {
+  var APT_PHASE_PROGRESS = {
     start: 5,
     update: 25,
     upgrade: 65,
@@ -10,35 +10,34 @@
     done: 100,
   };
 
+  var APP_PHASE_PROGRESS = {
+    start: 5,
+    clone: 35,
+    deploy: 75,
+    done: 100,
+  };
+
   function csrfToken() {
     var meta = document.querySelector('meta[name="csrf-token"]');
     return meta ? meta.getAttribute('content') : '';
   }
 
-  function setProgress(phase) {
-    var fill = document.getElementById('update-progress-fill');
-    var badge = document.getElementById('update-phase-badge');
-    var text = document.getElementById('update-phase-text');
-    var pct = PHASE_PROGRESS[phase] || 10;
+  function setProgress(prefix, phase, map) {
+    var fill = document.getElementById(prefix + '-progress-fill');
+    var pct = map[phase] || 10;
     if (fill) fill.style.width = pct + '%';
-    if (text && badge) {
-      var label = badge.textContent;
-      if (phase && phase !== 'done') {
-        label = text.textContent;
-      }
-    }
   }
 
-  function showProgressCard() {
-    var card = document.getElementById('update-progress-card');
+  function showProgressCard(prefix) {
+    var card = document.getElementById(prefix + '-progress-card');
     if (card) card.hidden = false;
   }
 
-  function updateJobUI(data) {
-    var badge = document.getElementById('update-phase-badge');
-    var text = document.getElementById('update-phase-text');
-    var output = document.getElementById('update-job-output');
-    var upgradeBtn = document.getElementById('btn-apt-upgrade');
+  function updateJobUI(prefix, data, progressMap, buttonId, buttonIdleText) {
+    var badge = document.getElementById(prefix + '-phase-badge');
+    var text = document.getElementById(prefix + '-phase-text');
+    var output = document.getElementById(prefix + '-job-output');
+    var button = document.getElementById(buttonId);
 
     if (badge && data.phase_label) badge.textContent = data.phase_label;
     if (text && data.phase_label) text.textContent = data.phase_label;
@@ -46,38 +45,39 @@
       output.textContent = data.output;
       output.scrollTop = output.scrollHeight;
     }
-    if (data.phase) setProgress(data.phase);
+    if (data.phase) setProgress(prefix, data.phase, progressMap);
 
-    if (upgradeBtn) {
-      upgradeBtn.disabled = data.status === 'running';
+    if (button) {
+      button.disabled = data.status === 'running';
+      if (data.status !== 'running' && buttonIdleText) {
+        button.textContent = buttonIdleText;
+      }
     }
   }
 
-  function pollJob() {
-    var url = window.SAMBA_UPDATE_JOB_URL;
-    if (!url) return;
+  function pollJob(prefix, jobUrl, progressMap, buttonId, buttonIdleText, onSuccess) {
+    if (!jobUrl) return;
 
-    fetch(url, { credentials: 'same-origin' })
+    fetch(jobUrl, { credentials: 'same-origin' })
       .then(function (res) { return res.json(); })
       .then(function (data) {
-        updateJobUI(data);
+        updateJobUI(prefix, data, progressMap, buttonId, buttonIdleText);
         if (data.status === 'running') {
-          setTimeout(pollJob, 2000);
+          setTimeout(function () {
+            pollJob(prefix, jobUrl, progressMap, buttonId, buttonIdleText, onSuccess);
+          }, 2000);
           return;
         }
         if (data.status === 'done' && data.success) {
-          if (data.reboot_pending) {
-            showToast('Updates installiert – Neustart läuft …', 'success');
-          } else {
-            showToast('Updates wurden installiert.', 'success');
-            setTimeout(function () { window.location.reload(); }, 1500);
-          }
+          if (onSuccess) onSuccess(data);
         } else if (data.status === 'failed') {
           showToast('Update fehlgeschlagen.', 'error');
         }
       })
       .catch(function () {
-        setTimeout(pollJob, 3000);
+        setTimeout(function () {
+          pollJob(prefix, jobUrl, progressMap, buttonId, buttonIdleText, onSuccess);
+        }, 3000);
       });
   }
 
@@ -101,22 +101,23 @@
     stack.appendChild(toast);
   }
 
-  function startUpgrade() {
-    var url = window.SAMBA_UPDATE_START_URL;
+  function startJob(options) {
+    var url = options.startUrl;
     if (!url || !window.SambaUI) return;
 
-    window.SambaUI.confirm(
-      'Updates installieren? Bei Bedarf wird das System neu gestartet.',
-      { title: 'Updates installieren', danger: true }
-    ).then(function (ok) {
+    window.SambaUI.confirm(options.confirmText, {
+      title: options.confirmTitle,
+      danger: !!options.danger,
+    }).then(function (ok) {
       if (!ok) return;
 
-      showProgressCard();
-      setProgress('start');
-      var upgradeBtn = document.getElementById('btn-apt-upgrade');
-      if (upgradeBtn) {
-        upgradeBtn.disabled = true;
-        upgradeBtn.textContent = 'Wird ausgeführt …';
+      showProgressCard(options.prefix);
+      setProgress(options.prefix, 'start', options.progressMap);
+
+      var button = document.getElementById(options.buttonId);
+      if (button) {
+        button.disabled = true;
+        button.textContent = 'Wird ausgeführt …';
       }
 
       fetch(url, {
@@ -127,25 +128,58 @@
           'Content-Type': 'application/json',
         },
       })
-        .then(function (res) { return res.json().then(function (b) { return { ok: res.ok, body: b }; }); })
+        .then(function (res) {
+          return res.json().then(function (body) {
+            return { ok: res.ok, body: body };
+          });
+        })
         .then(function (result) {
           if (!result.ok) {
             showToast(result.body.error || 'Start fehlgeschlagen.', 'error');
-            if (upgradeBtn) {
-              upgradeBtn.disabled = false;
-              upgradeBtn.textContent = 'Updates installieren';
+            if (button) {
+              button.disabled = false;
+              button.textContent = options.buttonIdleText;
             }
             return;
           }
-          pollJob();
+          pollJob(
+            options.prefix,
+            options.jobUrl,
+            options.progressMap,
+            options.buttonId,
+            options.buttonIdleText,
+            options.onSuccess
+          );
         })
         .catch(function () {
           showToast('Verbindungsfehler beim Start.', 'error');
-          if (upgradeBtn) {
-            upgradeBtn.disabled = false;
-            upgradeBtn.textContent = 'Updates installieren';
+          if (button) {
+            button.disabled = false;
+            button.textContent = options.buttonIdleText;
           }
         });
+    });
+  }
+
+  function startUpgrade() {
+    startJob({
+      prefix: 'update',
+      startUrl: window.SAMBA_UPDATE_START_URL,
+      jobUrl: window.SAMBA_UPDATE_JOB_URL,
+      progressMap: APT_PHASE_PROGRESS,
+      buttonId: 'btn-apt-upgrade',
+      buttonIdleText: 'Updates installieren',
+      confirmTitle: 'Updates installieren',
+      confirmText: 'Updates installieren? Bei Bedarf wird das System neu gestartet.',
+      danger: true,
+      onSuccess: function (data) {
+        if (data.reboot_pending) {
+          showToast('Updates installiert – Neustart läuft …', 'success');
+        } else {
+          showToast('Updates wurden installiert.', 'success');
+          setTimeout(function () { window.location.reload(); }, 1500);
+        }
+      },
     });
   }
 
@@ -154,9 +188,60 @@
     if (upgradeBtn) {
       upgradeBtn.addEventListener('click', startUpgrade);
     }
+
+    var appUpdateBtn = document.getElementById('btn-app-update');
+    if (appUpdateBtn) {
+      var appUpdateLabel = appUpdateBtn.textContent.trim();
+      appUpdateBtn.addEventListener('click', function () {
+        startJob({
+          prefix: 'app-update',
+          startUrl: window.SAMBA_APP_UPDATE_START_URL,
+          jobUrl: window.SAMBA_APP_UPDATE_JOB_URL,
+          progressMap: APP_PHASE_PROGRESS,
+          buttonId: 'btn-app-update',
+          buttonIdleText: appUpdateLabel,
+          confirmTitle: 'App von GitHub aktualisieren',
+          confirmText: 'Simple Samba UI von GitHub aktualisieren? Die Web-UI startet kurz neu.',
+          danger: false,
+          onSuccess: function (data) {
+            var msg = 'App-Update abgeschlossen.';
+            if (data.new_version) {
+              msg = 'App wurde auf v' + data.new_version + ' aktualisiert.';
+            }
+            showToast(msg, 'success');
+            setTimeout(function () { window.location.reload(); }, 2000);
+          },
+        });
+      });
+    }
+
     if (window.SAMBA_UPDATE_JOB_RUNNING) {
-      showProgressCard();
-      pollJob();
+      showProgressCard('update');
+      pollJob(
+        'update',
+        window.SAMBA_UPDATE_JOB_URL,
+        APT_PHASE_PROGRESS,
+        'btn-apt-upgrade',
+        'Updates installieren'
+      );
+    }
+    if (window.SAMBA_APP_UPDATE_JOB_RUNNING) {
+      showProgressCard('app-update');
+      pollJob(
+        'app-update',
+        window.SAMBA_APP_UPDATE_JOB_URL,
+        APP_PHASE_PROGRESS,
+        'btn-app-update',
+        appUpdateBtn ? appUpdateBtn.textContent.trim() : 'Von GitHub aktualisieren',
+        function (data) {
+          var msg = 'App-Update abgeschlossen.';
+          if (data.new_version) {
+            msg = 'App wurde auf v' + data.new_version + ' aktualisiert.';
+          }
+          showToast(msg, 'success');
+          setTimeout(function () { window.location.reload(); }, 2000);
+        }
+      );
     }
   });
 })();

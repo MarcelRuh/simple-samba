@@ -35,6 +35,8 @@ from app.samba import (
 )
 from app.system import (
     SystemUpdateError,
+    app_update_job_status,
+    app_update_start,
     apt_job_status,
     apt_list_upgradable,
     apt_start_install_job,
@@ -410,12 +412,19 @@ def create_app() -> Flask:
         last_output: str | None = None
         last_success: bool | None = None
         job_running = False
+        app_job_running = False
 
         try:
             job = apt_job_status()
             job_running = job.get("status") == "running"
         except SystemUpdateError:
             job = {"status": "idle"}
+
+        try:
+            app_job = app_update_job_status()
+            app_job_running = app_job.get("status") == "running"
+        except SystemUpdateError:
+            app_job = {"status": "idle"}
 
         if request.method == "POST":
             action = (request.form.get("action") or "").strip()
@@ -463,6 +472,8 @@ def create_app() -> Flask:
             job_running=job_running,
             job=job,
             app_update=app_update,
+            app_job_running=app_job_running,
+            app_job=app_job,
         )
 
     @app.route("/system/updates/job/start", methods=["POST"])
@@ -479,6 +490,23 @@ def create_app() -> Flask:
     def system_updates_job():
         try:
             return jsonify(apt_job_status())
+        except SystemUpdateError as exc:
+            return jsonify({"status": "error", "error": str(exc)}), 500
+
+    @app.route("/system/updates/app/start", methods=["POST"])
+    @login_required
+    def system_updates_app_start():
+        try:
+            app_update_start()
+            return jsonify({"ok": True, "status": "running"})
+        except SystemUpdateError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+
+    @app.route("/system/updates/app/job")
+    @login_required
+    def system_updates_app_job():
+        try:
+            return jsonify(app_update_job_status())
         except SystemUpdateError as exc:
             return jsonify({"status": "error", "error": str(exc)}), 500
 

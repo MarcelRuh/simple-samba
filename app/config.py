@@ -23,6 +23,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "github_branch": "main",
     "update_check_enabled": True,
     "update_check_interval_hours": 6,
+    "source_clone_dir": "/usr/local/src/simple-samba",
 }
 
 

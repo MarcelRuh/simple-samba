@@ -37,18 +37,48 @@
 
   {% if app_update.update_available %}
   <p class="hint" style="margin-bottom:0.75rem">
-    Eine neuere Version liegt auf GitHub bereit. Die App wird nicht automatisch aktualisiert –
-    bitte auf dem Server als root ausführen:
+    Eine neuere Version liegt auf GitHub bereit. Du kannst das Update direkt hier starten
+    oder manuell auf dem Server ausführen:
   </p>
+  <div class="update-form" style="margin-bottom:0.75rem">
+    <button type="button"
+            class="btn btn-primary"
+            id="btn-app-update"
+            {% if app_job_running or job_running %}disabled{% endif %}>
+      Von GitHub aktualisieren
+    </button>
+    <span class="hint-inline">lädt Quellcode und führt <code>update.sh</code> aus</span>
+  </div>
   <pre class="output app-update-command">{{ app_update.bootstrap_command }}</pre>
   <p class="hint" style="margin:0.75rem 0">Alternativ (manueller Clone):</p>
   <pre class="output app-update-command">{{ app_update.manual_command }}</pre>
   {% else %}
-  <p class="hint" style="margin:0">
+  <p class="hint" style="margin-bottom:0.75rem">
     Kein App-Update verfügbar. Repository:
     <a href="{{ app_update.repo_url }}" target="_blank" rel="noopener noreferrer">{{ app_update.github_repo }}</a>
   </p>
+  <div class="update-form">
+    <button type="button"
+            class="btn btn-secondary btn-sm"
+            id="btn-app-update"
+            {% if app_job_running or job_running %}disabled{% endif %}>
+      Von GitHub neu installieren
+    </button>
+    <span class="hint-inline">aktuelle Version erneut von GitHub laden</span>
+  </div>
   {% endif %}
+
+  <div class="card" id="app-update-progress-card" {% if not app_job_running %}hidden{% endif %} style="margin-top:1rem">
+    <div class="card-header">
+      <span class="card-title">App-Update läuft</span>
+      <span class="badge warn" id="app-update-phase-badge">{{ app_job.phase_label or 'Wird gestartet …' }}</span>
+    </div>
+    <div class="progress-bar" aria-hidden="true">
+      <div class="progress-bar-fill" id="app-update-progress-fill"></div>
+    </div>
+    <p class="hint" id="app-update-phase-text" style="margin:0.75rem 0 0">{{ app_job.phase_label or 'Bitte warten …' }}</p>
+    <pre class="output update-job-output" id="app-update-job-output">{{ app_job.output or '' }}</pre>
+  </div>
 
   <div class="btn-group" style="margin-top:1rem">
     <a href="{{ url_for('system_updates', check_app=1) }}" class="btn btn-secondary btn-sm">Erneut prüfen</a>
@@ -155,6 +185,9 @@
   window.SAMBA_UPDATE_JOB_URL = {{ url_for('system_updates_job')|tojson }};
   window.SAMBA_UPDATE_START_URL = {{ url_for('system_updates_job_start')|tojson }};
   window.SAMBA_UPDATE_JOB_RUNNING = {{ job_running|tojson }};
+  window.SAMBA_APP_UPDATE_JOB_URL = {{ url_for('system_updates_app_job')|tojson }};
+  window.SAMBA_APP_UPDATE_START_URL = {{ url_for('system_updates_app_start')|tojson }};
+  window.SAMBA_APP_UPDATE_JOB_RUNNING = {{ app_job_running|tojson }};
 </script>
 <script src="{{ url_for('static', filename='js/updates.js') }}"></script>
 {% endblock %}
