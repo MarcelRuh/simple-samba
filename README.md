@@ -34,15 +34,32 @@ Gunicorn (User: samba-ui) – Flask-App
 
 ## Installation
 
+### One-Liner (empfohlen)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/MarcelRuh/simple-samba/main/bootstrap.sh | sudo bash
+```
+
+Das Script klont das Repository nach `/usr/local/src/simple-samba`, installiert Abhängigkeiten, legt die App unter `/opt/simple-samba-ui` ab, erstellt Admin-Zugangsdaten und startet systemd-Dienste.
+
+Am Ende werden **URL, Benutzername und Passwort** ausgegeben.
+
+**Nicht-interaktiv** (eigene Werte statt Standard):
+
+```bash
+SIMPLE_SAMBA_BIND_HOST=192.168.1.10 \
+SIMPLE_SAMBA_BIND_PORT=8080 \
+SIMPLE_SAMBA_SHARES_BASE=/srv/shares \
+curl -fsSL https://raw.githubusercontent.com/MarcelRuh/simple-samba/main/bootstrap.sh | sudo bash
+```
+
+### Manuell (git clone)
+
 ```bash
 git clone https://github.com/MarcelRuh/simple-samba.git
 cd simple-samba
 sudo bash install.sh
 ```
-
-Das Script installiert Abhängigkeiten, legt die App unter `/opt/simple-samba-ui` ab, erstellt Admin-Zugangsdaten und startet systemd-Dienste.
-
-Am Ende werden **URL, Benutzername und Passwort** ausgegeben.
 
 ### Bind-Adresse
 
@@ -59,7 +76,8 @@ Konfiguration: `/etc/simple-samba-ui/config.json`
 Nach Änderungen am Quellcode:
 
 ```bash
-cd simple-samba-ui
+cd /usr/local/src/simple-samba   # oder dein Clone-Verzeichnis
+git pull
 sudo bash update.sh
 ```
 
@@ -72,7 +90,8 @@ sudo bash uninstall.sh
 ## Projektstruktur
 
 ```
-simple-samba-ui/
+simple-samba/
+├── bootstrap.sh            # One-Liner-Einstieg (curl | bash)
 ├── install.sh / update.sh / uninstall.sh
 ├── app/                    # Flask-Anwendung
 ├── scripts/
