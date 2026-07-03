@@ -2,7 +2,7 @@
 # Gemeinsame Install-/Update-Logik für Simple Samba UI
 # Quellverzeichnis (Clone) → Deployment nach /opt/simple-samba-ui
 
-APP_VERSION="1.6.3"
+APP_VERSION="1.6.4"
 INSTALL_DIR="/opt/simple-samba-ui"
 CONFIG_DIR="/etc/simple-samba-ui"
 CONFIG_FILE="${CONFIG_DIR}/config.json"
