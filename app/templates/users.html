@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Samba-Benutzer – {{ app_name }}{% endblock %}
+{% block page_heading %}Samba-Benutzer{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Benutzer verwalten</h1>
+  <p class="lead">Linux-Systembenutzer und Samba-Passwort werden automatisch angelegt.</p>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <span class="card-title">{{ users|length }} Benutzer</span>
+    <a href="{{ url_for('user_new') }}" class="btn btn-primary">+ Benutzer anlegen</a>
+  </div>
+  {% if users %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Benutzer</th>
+          <th>Aktionen</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for user in users %}
+        <tr>
+          <td>
+            <div class="user-cell">
+              <span class="user-avatar">{{ user[0]|upper }}</span>
+              <strong>{{ user }}</strong>
+            </div>
+          </td>
+          <td>
+            <div class="btn-group">
+              <a href="{{ url_for('user_password', username=user) }}" class="btn btn-secondary btn-sm">Passwort</a>
+              <form class="inline-form" method="post" action="{{ url_for('user_delete', username=user) }}"
+                    data-confirm="Benutzer „{{ user }}“ wirklich löschen?"
+                    data-confirm-title="Benutzer löschen"
+                    data-confirm-danger>
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-danger btn-sm">Löschen</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <p>Keine Samba-Benutzer vorhanden.</p>
+    <a href="{{ url_for('user_new') }}" class="btn btn-primary">Ersten Benutzer anlegen</a>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Secrets & lokale Runtime (werden bei Installation auf dem Zielsystem erzeugt)
+config.json
+*.local.json
+initial-password.txt
+login_attempts.json
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+*.log
+
+# Build / Cache
+.pytest_cache/
+.mypy_cache/

@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}{% if editing %}Passwort ändern{% else %}Benutzer anlegen{% endif %} – {{ app_name }}{% endblock %}
+{% block page_heading %}{% if editing %}Passwort: {{ username }}{% else %}Benutzer anlegen{% endif %}{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>{% if editing %}Samba-Passwort ändern{% else %}Neuer Samba-Benutzer{% endif %}</h1>
+  {% if not editing %}
+  <p class="lead">Legt Linux-Systembenutzer und Samba-Konto automatisch an.</p>
+  {% endif %}
+</div>
+
+{% if error %}
+<div class="notice notice-error" role="alert">
+  <span class="toast-icon" aria-hidden="true">!</span>
+  <span>{{ error }}</span>
+</div>
+{% endif %}
+
+<div class="card form-card">
+  <form method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    {% if not editing %}
+    <div class="form-group">
+      <label for="username">Benutzername</label>
+      <input type="text" id="username" name="username" value="{{ username }}" required
+             pattern="[a-zA-Z][a-zA-Z0-9_-]{0,31}" autocomplete="off" placeholder="max">
+      <p class="hint">Home-Verzeichnis unter dem Freigabe-Basisordner.</p>
+    </div>
+    {% endif %}
+
+    <div class="form-group">
+      <label for="password">{% if editing %}Neues Passwort{% else %}Passwort{% endif %}</label>
+      <input type="password" id="password" name="password" required minlength="8" autocomplete="new-password">
+      <p class="hint">Mindestens 8 Zeichen.</p>
+    </div>
+
+    <div class="btn-group" style="margin-top:1rem">
+      <button type="submit" class="btn btn-primary">Speichern</button>
+      <a href="{{ url_for('users_list') }}" class="btn btn-secondary">Abbrechen</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

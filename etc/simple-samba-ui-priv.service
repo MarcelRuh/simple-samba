@@ -1,0 +1,20 @@
+[Unit]
+Description=Simple Samba UI – Privilege Daemon (root)
+Documentation=file:/opt/simple-samba-ui/README.md
+Wants=smbd.service
+After=network.target smbd.service
+
+[Service]
+Type=simple
+User=root
+Group=root
+Environment=PYTHONUNBUFFERED=1
+Environment=SAMBA_UI_SHARES_BASE=@SHARES_BASE@
+ExecStart=/opt/simple-samba-ui/venv/bin/python3 /opt/simple-samba-ui/scripts/simple-samba-ui-priv-daemon.py
+Restart=on-failure
+RestartSec=3
+RuntimeDirectory=simple-samba-ui
+RuntimeDirectoryMode=0750
+
+[Install]
+WantedBy=multi-user.target

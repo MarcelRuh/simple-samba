@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block title %}System-Updates – {{ app_name }}{% endblock %}
+{% block page_heading %}System-Updates{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Paket-Updates (apt)</h1>
+  <p class="lead">Paketlisten aktualisieren oder alle Updates in einem Schritt installieren.</p>
+</div>
+
+<div class="stats-grid">
+  <div class="stat-card {% if upgradable_count > 0 %}accent{% endif %}">
+    <span class="stat-label">Aktualisierbar</span>
+    <span class="stat-value">
+      {% if upgradable_count > 0 %}
+        <span class="badge warn">{{ upgradable_count }}</span>
+      {% else %}
+        <span class="badge ok">0</span>
+      {% endif %}
+    </span>
+  </div>
+</div>
+
+{% if check_error %}
+<div class="notice notice-error" role="alert">
+  <span class="toast-icon" aria-hidden="true">!</span>
+  <span>{{ check_error }}</span>
+</div>
+{% endif %}
+
+<div class="card" id="update-progress-card" {% if not job_running %}hidden{% endif %}>
+  <div class="card-header">
+    <span class="card-title">Installation läuft</span>
+    <span class="badge warn" id="update-phase-badge">{{ job.phase_label or 'Wird gestartet …' }}</span>
+  </div>
+  <div class="progress-bar" aria-hidden="true">
+    <div class="progress-bar-fill" id="update-progress-fill"></div>
+  </div>
+  <p class="hint" id="update-phase-text" style="margin:0.75rem 0 0">{{ job.phase_label or 'Bitte warten …' }}</p>
+  <pre class="output update-job-output" id="update-job-output">{{ job.output or '' }}</pre>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <span class="card-title">Update-Steuerung</span>
+  </div>
+  <p class="hint" style="margin-bottom:1rem">
+  Aktionen laufen als root über den Privilege-Daemon. Die Installation kann mehrere Minuten dauern.
+  </p>
+
+  <div class="update-actions">
+    <form class="inline-form update-form" method="post" action="{{ url_for('system_updates') }}" data-loading>
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="action" value="update">
+      <button type="submit" class="btn btn-secondary" id="btn-apt-update">Paketlisten aktualisieren</button>
+      <span class="hint-inline">entspricht <code>apt update</code></span>
+    </form>
+
+    <div class="update-form update-form-danger">
+      <p class="hint">
+        Führt <code>apt update &amp;&amp; apt upgrade -y &amp;&amp; apt autoremove</code> aus.
+        Bei Bedarf Neustart des Systems.
+      </p>
+      <button type="button" class="btn btn-primary" id="btn-apt-upgrade"
+              {% if job_running %}disabled{% endif %}>
+        Updates installieren
+      </button>
+    </div>
+  </div>
+</div>
+
+{% if upgradable_packages %}
+<div class="card">
+  <div class="card-header">
+    <span class="card-title">Aktualisierbare Pakete</span>
+    <span class="badge warn">{{ upgradable_count }}</span>
+  </div>
+  <ul class="package-list">
+    {% for pkg in upgradable_packages %}
+    <li><code>{{ pkg }}</code></li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+{% if last_output %}
+<div class="card">
+  <div class="card-header">
+    <span class="card-title">Letzte Ausgabe</span>
+    {% if last_success %}
+      <span class="badge ok">OK</span>
+    {% else %}
+      <span class="badge off">Fehler</span>
+    {% endif %}
+  </div>
+  <pre class="output">{{ last_output }}</pre>
+</div>
+{% endif %}
+
+<script>
+  window.SAMBA_UPDATE_JOB_URL = {{ url_for('system_updates_job')|tojson }};
+  window.SAMBA_UPDATE_START_URL = {{ url_for('system_updates_job_start')|tojson }};
+  window.SAMBA_UPDATE_JOB_RUNNING = {{ job_running|tojson }};
+</script>
+<script src="{{ url_for('static', filename='js/updates.js') }}"></script>
+{% endblock %}

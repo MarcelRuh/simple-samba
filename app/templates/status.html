@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}Status – {{ app_name }}{% endblock %}
+{% block page_heading %}Systemstatus{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Dienst &amp; Konfiguration</h1>
+  <p class="lead">Samba-Dienst steuern und Konfiguration prüfen.</p>
+</div>
+
+<div class="stats-grid">
+  <div class="stat-card {% if status.is_running %}accent{% endif %}">
+    <span class="stat-label">smbd</span>
+    <span class="stat-value">
+      {% if status.is_running %}
+        <span class="badge ok">Läuft</span>
+      {% else %}
+        <span class="badge off">{{ status.active }}</span>
+      {% endif %}
+    </span>
+  </div>
+  <div class="stat-card">
+    <span class="stat-label">Konfiguration</span>
+    <span class="stat-value">
+      {% if config_check.success %}
+        <span class="badge ok">Gültig</span>
+      {% else %}
+        <span class="badge off">Fehler</span>
+      {% endif %}
+    </span>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <span class="card-title">Samba-Dienst (smbd)</span>
+    <div class="btn-group">
+      <form class="inline-form" method="post" action="{{ url_for('service_reload') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="btn btn-secondary btn-sm">Neu laden</button>
+      </form>
+      <form class="inline-form" method="post" action="{{ url_for('service_restart') }}"
+            data-confirm="Samba wirklich neu starten?"
+            data-confirm-title="Samba neustarten"
+            data-confirm-danger>
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="btn btn-danger btn-sm">Neustart</button>
+      </form>
+      <a href="{{ url_for('config_check_page') }}" class="btn btn-secondary btn-sm">Konfiguration prüfen</a>
+    </div>
+  </div>
+  <pre class="output">{{ status.output or 'Keine Ausgabe.' }}</pre>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <span class="card-title">Konfigurationsprüfung (Kurz)</span>
+    {% if config_check.success %}
+      <span class="badge ok">OK</span>
+    {% else %}
+      <span class="badge off">Fehler</span>
+    {% endif %}
+  </div>
+  <pre class="output">{{ config_check.output or 'Keine Ausgabe.' }}</pre>
+</div>
+{% endblock %}

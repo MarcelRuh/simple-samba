@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="csrf-token" content="{{ csrf_token() }}">
+  <title>{% block title %}{{ app_name }}{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+{% if session.get('authenticated') %}
+<div class="app-shell">
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <a href="{{ url_for('index') }}" class="logo">
+        <span class="logo-icon">SMB</span>
+        <span class="logo-text">Simple <span class="logo-accent">Samba</span></span>
+      </a>
+    </div>
+    <nav class="sidebar-nav">
+      <a href="{{ url_for('index') }}" class="nav-item {% if request.endpoint == 'index' %}active{% endif %}">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
+        Freigaben
+      </a>
+      <a href="{{ url_for('users_list') }}" class="nav-item {% if request.endpoint and 'user' in request.endpoint %}active{% endif %}">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>
+        Benutzer
+      </a>
+      <a href="{{ url_for('status_page') }}" class="nav-item {% if request.endpoint in ('status_page', 'config_check_page') %}active{% endif %}">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+        Status
+      </a>
+      <a href="{{ url_for('system_updates') }}" class="nav-item {% if request.endpoint == 'system_updates' %}active{% endif %}">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Updates
+      </a>
+      <a href="{{ url_for('change_password') }}" class="nav-item {% if request.endpoint == 'change_password' %}active{% endif %}">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
+        Passwort
+      </a>
+    </nav>
+    <div class="sidebar-footer">
+      v{{ app_version }} · {{ session.get('username', 'admin') }}
+      <form method="post" action="{{ url_for('logout') }}" style="margin-top:0.5rem">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="btn btn-ghost btn-sm" style="width:100%;justify-content:flex-start;padding-left:0">Abmelden</button>
+      </form>
+    </div>
+  </aside>
+  <div class="main-content">
+    <header class="topbar">
+      <div class="topbar-left">
+        <a href="{{ url_for('index') }}" class="topbar-logo" title="Simple Samba UI">
+          <span class="logo-icon">SMB</span>
+        </a>
+        <div class="topbar-title">{% block page_heading %}{{ app_name }}{% endblock %}</div>
+      </div>
+      <div class="topbar-meta">{{ config.bind_host }}:{{ config.bind_port }}</div>
+    </header>
+    <main class="container">
+{% else %}
+<main class="login-shell">
+{% endif %}
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+        <div class="toast-stack" role="status" aria-live="polite">
+          {% for category, message in messages %}
+          <div class="toast {{ category }}" data-toast>
+            <span class="toast-icon" aria-hidden="true">{% if category == 'success' %}✓{% elif category == 'error' %}!{% else %}i{% endif %}</span>
+            <span class="toast-message">{{ message }}</span>
+            <button type="button" class="toast-close" aria-label="Schließen">×</button>
+          </div>
+          {% endfor %}
+        </div>
+        {% endif %}
+      {% endwith %}
+      {% block content %}{% endblock %}
+{% if session.get('authenticated') %}
+    </main>
+  </div>
+</div>
+{% else %}
+</main>
+{% endif %}
+
+<div id="ui-modal" class="ui-modal" hidden aria-hidden="true">
+  <div class="ui-modal-backdrop"></div>
+  <div class="ui-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="ui-modal-title">
+    <div class="ui-modal-header">
+      <h2 class="ui-modal-title" id="ui-modal-title">Bestätigen</h2>
+    </div>
+    <div class="ui-modal-body" id="ui-modal-body"></div>
+    <div class="ui-modal-footer">
+      <button type="button" class="btn btn-secondary" id="ui-modal-cancel">Abbrechen</button>
+      <button type="button" class="btn btn-primary" id="ui-modal-ok">OK</button>
+    </div>
+  </div>
+</div>
+<script src="{{ url_for('static', filename='js/ui.js') }}"></script>
+</body>
+</html>
