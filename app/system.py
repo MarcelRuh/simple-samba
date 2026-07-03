@@ -108,6 +108,14 @@ def apt_job_status() -> dict:
     return _run_priv_json("apt-job-status", timeout=30)
 
 
+def app_update_start() -> None:
+    _run_priv("app-update-start", timeout=30)
+
+
+def app_update_job_status() -> dict:
+    return _run_priv_json("app-update-status", timeout=30)
+
+
 def get_system_overview() -> SystemOverview:
     raw = _run_priv_json("system-overview", timeout=30)
     packages, _ = check_upgradable_safe()

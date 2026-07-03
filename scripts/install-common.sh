@@ -2,7 +2,7 @@
 # Gemeinsame Install-/Update-Logik für Simple Samba UI
 # Quellverzeichnis (Clone) → Deployment nach /opt/simple-samba-ui
 
-APP_VERSION="1.4.2"
+APP_VERSION="1.5.0"
 INSTALL_DIR="/opt/simple-samba-ui"
 CONFIG_DIR="/etc/simple-samba-ui"
 CONFIG_FILE="${CONFIG_DIR}/config.json"
@@ -118,6 +118,7 @@ set_permissions() {
     chown -R samba-ui:samba-ui "${INSTALL_DIR}"
     chmod 750 "${INSTALL_DIR}"
     chmod 755 "${INSTALL_DIR}/scripts/simple-samba-ui-priv-daemon.py" 2>/dev/null || true
+    chmod 755 "${INSTALL_DIR}/scripts/run-app-update.py" 2>/dev/null || true
     mkdir -p "${CONFIG_DIR}" "${BACKUP_DIR}"
     chown samba-ui:samba-ui "${CONFIG_DIR}"
     chmod 750 "${CONFIG_DIR}"

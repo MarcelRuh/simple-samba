@@ -55,7 +55,15 @@ REBOOT_DELAY_SECONDS = 4
 APT_JOB_DIR = Path("/run/simple-samba-ui/apt-job")
 APT_JOB_STATUS_FILE = APT_JOB_DIR / "status.json"
 APT_JOB_LOG_FILE = APT_JOB_DIR / "output.log"
+APP_UPDATE_JOB_DIR = Path("/run/simple-samba-ui/app-update-job")
+APP_UPDATE_JOB_STATUS_FILE = APP_UPDATE_JOB_DIR / "status.json"
+APP_UPDATE_JOB_LOG_FILE = APP_UPDATE_JOB_DIR / "output.log"
+RUN_APP_UPDATE = Path("/opt/simple-samba-ui/scripts/run-app-update.py")
+DEFAULT_SOURCE_CLONE_DIR = Path("/usr/local/src/simple-samba")
+DEFAULT_GITHUB_REPO = "MarcelRuh/simple-samba"
+DEFAULT_GITHUB_BRANCH = "main"
 _apt_job_lock = threading.Lock()
+_app_update_job_lock = threading.Lock()
 PHASE_LABELS = {
     "start": "Wird gestartet …",
     "update": "Paketlisten aktualisieren",
@@ -682,8 +690,7 @@ def _apt_upgrade_worker() -> None:
 
 def cmd_apt_upgrade_start() -> tuple[bool, str]:
     with _apt_job_lock:
-        current = _read_job_status()
-        if current.get("status") == "running":
+        if _any_update_job_running():
             return False, "Eine Update-Installation läuft bereits."
         thread = threading.Thread(target=_apt_upgrade_worker, daemon=True)
         thread.start()
@@ -693,6 +700,90 @@ def cmd_apt_upgrade_start() -> tuple[bool, str]:
 def cmd_apt_job_status() -> tuple[bool, str]:
     data = _read_job_status()
     data["output"] = _read_job_log()
+    return True, json.dumps(data, ensure_ascii=False)
+
+
+def _github_settings() -> tuple[Path, str, str]:
+    cfg = load_app_config()
+    clone_dir = Path(cfg.get("source_clone_dir") or DEFAULT_SOURCE_CLONE_DIR)
+    repo = str(cfg.get("github_repo") or DEFAULT_GITHUB_REPO).strip("/")
+    branch = str(cfg.get("github_branch") or DEFAULT_GITHUB_BRANCH).strip()
+    return clone_dir, repo, branch
+
+
+def _chown_app_update_job_files() -> None:
+    gid = grp.getgrnam(ALLOWED_UID_NAME).gr_gid
+    for path in (APP_UPDATE_JOB_DIR, APP_UPDATE_JOB_STATUS_FILE, APP_UPDATE_JOB_LOG_FILE):
+        if path.exists():
+            os.chown(path, 0, gid)
+    if APP_UPDATE_JOB_DIR.is_dir():
+        os.chmod(APP_UPDATE_JOB_DIR, 0o750)
+    if APP_UPDATE_JOB_STATUS_FILE.is_file():
+        os.chmod(APP_UPDATE_JOB_STATUS_FILE, 0o660)
+    if APP_UPDATE_JOB_LOG_FILE.is_file():
+        os.chmod(APP_UPDATE_JOB_LOG_FILE, 0o660)
+
+
+def _read_app_update_job_status() -> dict:
+    if not APP_UPDATE_JOB_STATUS_FILE.is_file():
+        return {"status": "idle"}
+    try:
+        return json.loads(APP_UPDATE_JOB_STATUS_FILE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"status": "idle"}
+
+
+def _read_app_update_job_log() -> str:
+    if not APP_UPDATE_JOB_LOG_FILE.is_file():
+        return ""
+    try:
+        return APP_UPDATE_JOB_LOG_FILE.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+
+
+def _any_update_job_running() -> bool:
+    apt = _read_job_status().get("status")
+    app = _read_app_update_job_status().get("status")
+    return apt == "running" or app == "running"
+
+
+def cmd_app_update_start() -> tuple[bool, str]:
+    with _app_update_job_lock:
+        if _any_update_job_running():
+            return False, "Eine Update-Installation läuft bereits."
+        clone_dir, repo, branch = _github_settings()
+        script = RUN_APP_UPDATE if RUN_APP_UPDATE.is_file() else Path(__file__).with_name("run-app-update.py")
+        if not script.is_file():
+            return False, "Update-Script nicht gefunden. Bitte App manuell aktualisieren."
+        APP_UPDATE_JOB_DIR.mkdir(parents=True, exist_ok=True)
+        APP_UPDATE_JOB_LOG_FILE.write_text("", encoding="utf-8")
+        started = _iso_now()
+        APP_UPDATE_JOB_STATUS_FILE.write_text(
+            json.dumps({
+                "status": "running",
+                "phase": "start",
+                "phase_label": "Wird gestartet …",
+                "success": None,
+                "started_at": started,
+                "finished_at": None,
+                "new_version": None,
+            }, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        _chown_app_update_job_files()
+        subprocess.Popen(
+            [sys.executable, str(script), str(clone_dir), repo, branch],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    return True, "running"
+
+
+def cmd_app_update_status() -> tuple[bool, str]:
+    data = _read_app_update_job_status()
+    data["output"] = _read_app_update_job_log()
     return True, json.dumps(data, ensure_ascii=False)
 
 
@@ -769,6 +860,8 @@ def handle_request(line: str, body: bytes) -> tuple[bool, str]:
         "apt-upgrade": lambda: cmd_apt_upgrade(),
         "apt-upgrade-start": lambda: cmd_apt_upgrade_start(),
         "apt-job-status": lambda: cmd_apt_job_status(),
+        "app-update-start": lambda: cmd_app_update_start(),
+        "app-update-status": lambda: cmd_app_update_status(),
         "system-overview": lambda: cmd_system_overview(),
     }
 
