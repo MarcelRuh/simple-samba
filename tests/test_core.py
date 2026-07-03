@@ -2,6 +2,7 @@ import pytest
 
 from app.smbconf_parser import (
     comment_out_sections,
+    ensure_global_smb_include,
     filter_importable,
     infer_shares_base_path,
     parse_smb_conf_shares,
@@ -47,6 +48,19 @@ def test_infer_shares_base_path():
     assert infer_shares_base_path(["/srv/raid5/plex", "/srv/raid5/data"]) == "/srv/raid5"
     assert infer_shares_base_path(["/mnt/nas/files"]) == "/mnt/nas/files"
     assert infer_shares_base_path(["/srv/a", "/mnt/b"]) == "/"
+
+
+def test_ensure_global_smb_include_repairs_wrong_section():
+    content = (
+        "[global]\n"
+        "   workgroup = WORKGROUP\n\n"
+        "[print$]\n"
+        "   path = /var/lib/samba/printers\n"
+        "   include = /etc/samba/smb-shares.conf\n"
+    )
+    fixed = ensure_global_smb_include(content)
+    assert fixed.count("include = /etc/samba/smb-shares.conf") == 1
+    assert "include = /etc/samba/smb-shares.conf" in fixed.split("[print$]")[0]
 
 
 def test_filter_importable():

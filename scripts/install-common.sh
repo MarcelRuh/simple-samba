@@ -2,7 +2,7 @@
 # Gemeinsame Install-/Update-Logik für Simple Samba UI
 # Quellverzeichnis (Clone) → Deployment nach /opt/simple-samba-ui
 
-APP_VERSION="1.6.9"
+APP_VERSION="1.6.10"
 INSTALL_DIR="/opt/simple-samba-ui"
 CONFIG_DIR="/etc/simple-samba-ui"
 CONFIG_FILE="${CONFIG_DIR}/config.json"
@@ -109,11 +109,16 @@ fix_smb_conf_include() {
         warn "smb.conf nicht gefunden – Samba-Include übersprungen."
         return 0
     fi
-    if grep -qE '^\s*include\s*=\s*/etc/samba/smb-shares\.conf' "${SMB_CONF}"; then
-        return 0
-    fi
-    info "Ergänze include in ${SMB_CONF} …"
-    printf '\n# Simple Samba UI – verwaltete Freigaben\ninclude = /etc/samba/smb-shares.conf\n' >>"${SMB_CONF}"
+    local py_src="${INSTALL_DIR}"
+    [[ -d "${py_src}/app" ]] || py_src="${SCRIPT_DIR:-${INSTALL_DIR}}"
+    info "Prüfe Samba-Include in [global] …"
+    PYTHONPATH="${py_src}" python3 - <<'PY'
+from pathlib import Path
+from app.smbconf_parser import repair_smb_conf_include
+
+if repair_smb_conf_include(Path("/etc/samba/smb.conf")):
+    print("Include-Zeile in [global] ergänzt/repariert.")
+PY
 }
 
 detect_shares_base_from_smb_conf() {
@@ -129,10 +134,9 @@ detect_shares_base_from_smb_conf() {
 import sys
 from pathlib import Path
 
-from app.smbconf_parser import infer_shares_base_path, parse_smb_conf_shares
+from app.smbconf_parser import infer_shares_base_path, parse_all_smb_conf_shares
 
-content = Path("/etc/samba/smb.conf").read_text(encoding="utf-8")
-shares = parse_smb_conf_shares(content)
+shares = parse_all_smb_conf_shares(Path("/etc/samba/smb.conf"))
 if not shares:
     sys.exit(0)
 print(infer_shares_base_path([share.path for share in shares]))
