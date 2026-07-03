@@ -304,16 +304,14 @@ def unix_user_exists(username: str) -> bool:
 
 
 def ensure_unix_user(username: str) -> tuple[bool, str]:
-    """Legt Linux-Systembenutzer an, falls smbpasswd ihn benötigt."""
+    """Legt Linux-Systembenutzer an, falls smbpasswd ihn benötigt (ohne Home-Verzeichnis)."""
     if unix_user_exists(username):
         return True, "Linux-Benutzer existiert bereits."
 
-    shares_base = get_shares_base()
-    home_dir = shares_base / username
     result = run_cmd([
         USERADD,
-        "--create-home",
-        "--home-dir", str(home_dir),
+        "--no-create-home",
+        "--home-dir", "/nonexistent",
         "--shell", "/usr/sbin/nologin",
         username,
     ])
@@ -321,11 +319,7 @@ def ensure_unix_user(username: str) -> tuple[bool, str]:
         detail = ((result.stderr or "") + (result.stdout or "")).strip()
         return False, f"Linux-Benutzer konnte nicht angelegt werden: {detail}"
 
-    try:
-        os.chmod(home_dir, 0o770)
-    except OSError:
-        pass
-    return True, f"Linux-Benutzer angelegt ({home_dir})."
+    return True, f"Linux-Benutzer {username} angelegt (ohne Home-Verzeichnis)."
 
 
 def remove_unix_user_if_safe(username: str) -> None:
