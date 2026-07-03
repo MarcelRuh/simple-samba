@@ -7,18 +7,27 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/scripts/install-common.sh"
 
 ADMIN_USER="admin"
-SHARES_BASE="/srv/shares"
-BIND_HOST="127.0.0.1"
-BIND_PORT="8080"
+SHARES_BASE="${SIMPLE_SAMBA_SHARES_BASE:-/srv/shares}"
+BIND_HOST="${SIMPLE_SAMBA_BIND_HOST:-127.0.0.1}"
+BIND_PORT="${SIMPLE_SAMBA_BIND_PORT:-8080}"
 UPGRADE=false
+
+_is_interactive() {
+    [[ -t 0 ]] && [[ "${SIMPLE_SAMBA_NONINTERACTIVE:-}" != "1" ]]
+}
 
 require_root
 
 if [[ -f "${CONFIG_FILE}" ]]; then
-    warn "Bestehende Installation erkannt."
-    read -rp "Upgrade/Reinstall durchführen? Konfiguration bleibt erhalten. (ja/nein) [ja]: " up
-    up="${up:-ja}"
-    [[ "${up}" == "ja" ]] && UPGRADE=true
+    if _is_interactive; then
+        warn "Bestehende Installation erkannt."
+        read -rp "Upgrade/Reinstall durchführen? Konfiguration bleibt erhalten. (ja/nein) [ja]: " up
+        up="${up:-ja}"
+        [[ "${up}" == "ja" ]] && UPGRADE=true
+    else
+        info "Bestehende Installation – führe Upgrade durch (Konfiguration bleibt erhalten)."
+        UPGRADE=true
+    fi
 fi
 
 echo ""
@@ -28,14 +37,21 @@ echo "  Installation für Debian 13"
 echo "========================================"
 echo ""
 
-read -rp "Basisverzeichnis für Freigaben [${SHARES_BASE}]: " input_base
-SHARES_BASE="${input_base:-${SHARES_BASE}}"
+if _is_interactive; then
+    read -rp "Basisverzeichnis für Freigaben [${SHARES_BASE}]: " input_base
+    SHARES_BASE="${input_base:-${SHARES_BASE}}"
 
-read -rp "Bind-Host [${BIND_HOST}]: " input_host
-BIND_HOST="${input_host:-${BIND_HOST}}"
+    read -rp "Bind-Host [${BIND_HOST}]: " input_host
+    BIND_HOST="${input_host:-${BIND_HOST}}"
 
-read -rp "Bind-Port [${BIND_PORT}]: " input_port
-BIND_PORT="${input_port:-${BIND_PORT}}"
+    read -rp "Bind-Port [${BIND_PORT}]: " input_port
+    BIND_PORT="${input_port:-${BIND_PORT}}"
+else
+    info "Nicht-interaktiv – Standardwerte."
+    SHARES_BASE="${SIMPLE_SAMBA_SHARES_BASE:-${SHARES_BASE}}"
+    BIND_HOST="${SIMPLE_SAMBA_BIND_HOST:-${BIND_HOST}}"
+    BIND_PORT="${SIMPLE_SAMBA_BIND_PORT:-${BIND_PORT}}"
+fi
 
 ensure_packages
 ensure_service_user
