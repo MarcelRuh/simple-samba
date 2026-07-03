@@ -1,0 +1,540 @@
+"""Flask-Anwendung – Simple Samba UI."""
+
+from __future__ import annotations
+
+from flask import Flask, flash, jsonify, redirect, render_template, request, url_for
+
+from app.auth import (
+    attempt_login,
+    configure_session,
+    hash_password,
+    is_authenticated,
+    login_required,
+    login_user,
+    logout_user,
+    verify_password,
+)
+from app.config import load_config, save_config
+from app.csrf import get_csrf_token, validate_csrf_token
+from app.rate_limit import clear_login_attempts, is_login_locked, record_failed_login
+from app.samba import (
+    SambaError,
+    Share,
+    add_samba_user,
+    delete_samba_user,
+    delete_share_directory,
+    get_share_by_name,
+    list_samba_users,
+    read_shares,
+    reload_samba,
+    restart_samba,
+    run_testparm,
+    service_status,
+    set_samba_password,
+    write_shares,
+)
+from app.system import (
+    SystemUpdateError,
+    apt_job_status,
+    apt_list_upgradable,
+    apt_start_install_job,
+    apt_update,
+    check_upgradable_safe,
+    format_bytes,
+    format_uptime,
+    get_overview_safe,
+)
+from app.validators import (
+    ValidationError,
+    parse_valid_users_checked,
+    validate_comment,
+    validate_password,
+    validate_samba_username,
+    validate_share_name,
+    validate_share_path,
+)
+
+
+def create_app() -> Flask:
+    app = Flask(__name__)
+    configure_session(app)
+
+    @app.before_request
+    def _check_csrf() -> None:
+        if request.method in ("GET", "HEAD", "OPTIONS"):
+            return
+        if request.endpoint == "static":
+            return
+        validate_csrf_token()
+
+    @app.context_processor
+    def inject_globals():
+        from app import __version__
+        try:
+            cfg = load_config()
+        except Exception:
+            cfg = {}
+        return {
+            "app_name": "Simple Samba UI",
+            "app_version": __version__,
+            "config": cfg,
+            "csrf_token": get_csrf_token,
+        }
+
+  # --- Auth ---
+
+    @app.route("/login", methods=["GET", "POST"])
+    def login():
+        if is_authenticated():
+            return redirect(url_for("index"))
+        error = None
+        client_ip = request.remote_addr or "unknown"
+        locked, wait_seconds = is_login_locked(client_ip)
+        if request.method == "POST":
+            if locked:
+                minutes = max(1, wait_seconds // 60)
+                error = f"Zu viele Fehlversuche. Bitte ca. {minutes} Min. warten."
+            else:
+                username = (request.form.get("username") or "").strip()
+                password = request.form.get("password") or ""
+                if attempt_login(username, password):
+                    clear_login_attempts(client_ip)
+                    login_user(username)
+                    next_url = request.args.get("next") or url_for("index")
+                    if not next_url.startswith("/"):
+                        next_url = url_for("index")
+                    return redirect(next_url)
+                record_failed_login(client_ip)
+                locked, wait_seconds = is_login_locked(client_ip)
+                if locked:
+                    minutes = max(1, wait_seconds // 60)
+                    error = f"Zu viele Fehlversuche. Bitte ca. {minutes} Min. warten."
+                else:
+                    error = "Ungültiger Benutzername oder Passwort."
+        elif locked:
+            minutes = max(1, wait_seconds // 60)
+            error = f"Zu viele Fehlversuche. Bitte ca. {minutes} Min. warten."
+        return render_template("login.html", error=error)
+
+    @app.route("/logout", methods=["POST"])
+    @login_required
+    def logout():
+        logout_user()
+        return redirect(url_for("login"))
+
+    @app.route("/change-password", methods=["GET", "POST"])
+    @login_required
+    def change_password():
+        error = None
+        success = None
+        if request.method == "POST":
+            current = request.form.get("current_password") or ""
+            new_pw = request.form.get("new_password") or ""
+            confirm = request.form.get("confirm_password") or ""
+            config = load_config()
+            if not verify_password(current, config["admin_password_hash"]):
+                error = "Aktuelles Passwort ist falsch."
+            elif new_pw != confirm:
+                error = "Neue Passwörter stimmen nicht überein."
+            else:
+                try:
+                    validate_password(new_pw, "Neues Passwort")
+                    config["admin_password_hash"] = hash_password(new_pw)
+                    save_config(config)
+                    success = "Admin-Passwort wurde geändert."
+                except ValidationError as exc:
+                    error = str(exc)
+        return render_template("change_password.html", error=error, success=success)
+
+  # --- Dashboard ---
+
+    @app.route("/")
+    @login_required
+    def index():
+        config = load_config()
+        overview, overview_error = get_overview_safe()
+        try:
+            shares = read_shares(config["samba_shares_file"])
+            status = service_status()
+        except SambaError as exc:
+            flash(str(exc), "error")
+            shares = []
+            status = {"active": "unknown", "is_running": False, "output": ""}
+        return render_template(
+            "index.html",
+            shares=shares,
+            status=status,
+            config=config,
+            overview=overview,
+            overview_error=overview_error,
+            format_bytes=format_bytes,
+            format_uptime=format_uptime,
+        )
+
+  # --- Shares ---
+
+    @app.route("/shares/new", methods=["GET", "POST"])
+    @login_required
+    def share_new():
+        config = load_config()
+        share = Share(name="", path=_default_share_path(config["shares_base_path"]), comment="")
+        error = None
+        samba_users = _load_samba_users_for_form()
+        if request.method == "POST":
+            try:
+                share = _share_from_form(request.form)
+                shares = read_shares(config["samba_shares_file"])
+                if get_share_by_name(shares, share.name):
+                    raise ValidationError(f"Freigabe „{share.name}“ existiert bereits.")
+                shares.append(share)
+                write_shares(shares, config["samba_shares_file"], config["shares_base_path"])
+                host = config.get("bind_host", "127.0.0.1")
+                if host in ("0.0.0.0", "::"):
+                    host = "127.0.0.1"
+                flash(
+                    f"Freigabe „{share.name}“ erstellt. Sofort zugreifbar unter "
+                    f"\\\\{host}\\{share.name} (Samba-Benutzer erforderlich).",
+                    "success",
+                )
+                return redirect(url_for("index"))
+            except (ValidationError, SambaError) as exc:
+                error = str(exc)
+                share = _share_from_form_values(request.form)
+        return render_template(
+            "share_form.html", share=share, error=error, editing=False, samba_users=samba_users
+        )
+
+    @app.route("/shares/<path:share_name>/edit", methods=["GET", "POST"])
+    @login_required
+    def share_edit(share_name: str):
+        config = load_config()
+        shares = read_shares(config["samba_shares_file"])
+        existing = get_share_by_name(shares, share_name)
+        if not existing:
+            flash("Freigabe nicht gefunden.", "error")
+            return redirect(url_for("index"))
+        error = None
+        samba_users = _load_samba_users_for_form()
+        if request.method == "POST":
+            try:
+                updated = _share_from_form(request.form)
+                new_name = updated.name
+                if new_name != share_name and get_share_by_name(shares, new_name):
+                    raise ValidationError(f"Freigabe „{new_name}“ existiert bereits.")
+                shares = [s for s in shares if s.name != share_name]
+                shares.append(updated)
+                write_shares(shares, config["samba_shares_file"], config["shares_base_path"])
+                flash(f"Freigabe „{new_name}“ wurde aktualisiert.", "success")
+                return redirect(url_for("index"))
+            except (ValidationError, SambaError) as exc:
+                error = str(exc)
+                existing = _share_from_form_values(request.form)
+        return render_template(
+            "share_form.html", share=existing, error=error, editing=True, samba_users=samba_users
+        )
+
+    @app.route("/shares/<path:share_name>/delete", methods=["GET", "POST"])
+    @login_required
+    def share_delete(share_name: str):
+        config = load_config()
+        try:
+            shares = read_shares(config["samba_shares_file"])
+            share = get_share_by_name(shares, share_name)
+            if not share:
+                flash("Freigabe nicht gefunden.", "error")
+                return redirect(url_for("index"))
+
+            if request.method == "GET":
+                return render_template("share_delete.html", share=share)
+
+            delete_files = request.form.get("delete_files") == "on"
+            share_path = share.path
+            shares = [s for s in shares if s.name != share_name]
+            write_shares(shares, config["samba_shares_file"], config["shares_base_path"])
+
+            if delete_files:
+                delete_share_directory(share_path, config["shares_base_path"])
+                flash(
+                    f"Freigabe „{share_name}“ und Verzeichnis „{share_path}“ wurden gelöscht.",
+                    "success",
+                )
+            else:
+                flash(f"Freigabe „{share_name}“ wurde gelöscht. Daten unter {share_path} bleiben erhalten.", "success")
+        except (ValidationError, SambaError) as exc:
+            flash(str(exc), "error")
+        return redirect(url_for("index"))
+
+    @app.route("/shares/<path:share_name>/toggle", methods=["POST"])
+    @login_required
+    def share_toggle(share_name: str):
+        config = load_config()
+        try:
+            shares = read_shares(config["samba_shares_file"])
+            found = False
+            for share in shares:
+                if share.name == share_name:
+                    share.enabled = not share.enabled
+                    found = True
+                    break
+            if not found:
+                flash("Freigabe nicht gefunden.", "error")
+                return redirect(url_for("index"))
+            write_shares(shares, config["samba_shares_file"], config["shares_base_path"])
+            state = "aktiviert" if share.enabled else "deaktiviert"
+            flash(f"Freigabe „{share_name}“ wurde {state}.", "success")
+        except SambaError as exc:
+            flash(str(exc), "error")
+        return redirect(url_for("index"))
+
+  # --- Samba Users ---
+
+    @app.route("/users")
+    @login_required
+    def users_list():
+        try:
+            users = list_samba_users()
+        except SambaError as exc:
+            flash(str(exc), "error")
+            users = []
+        return render_template("users.html", users=users)
+
+    @app.route("/users/new", methods=["GET", "POST"])
+    @login_required
+    def user_new():
+        error = None
+        username = ""
+        if request.method == "POST":
+            try:
+                username = validate_samba_username(request.form.get("username") or "")
+                password = validate_password(request.form.get("password") or "")
+                add_samba_user(username, password)
+                flash(f"Samba-Benutzer „{username}“ wurde angelegt.", "success")
+                return redirect(url_for("users_list"))
+            except (ValidationError, SambaError) as exc:
+                error = str(exc)
+                username = (request.form.get("username") or "").strip()
+        return render_template("user_form.html", error=error, username=username, editing=False)
+
+    @app.route("/users/<username>/password", methods=["GET", "POST"])
+    @login_required
+    def user_password(username: str):
+        try:
+            username = validate_samba_username(username)
+        except ValidationError:
+            flash("Ungültiger Benutzername.", "error")
+            return redirect(url_for("users_list"))
+        error = None
+        if request.method == "POST":
+            try:
+                password = validate_password(request.form.get("password") or "")
+                set_samba_password(username, password)
+                flash(f"Passwort für „{username}“ wurde geändert.", "success")
+                return redirect(url_for("users_list"))
+            except (ValidationError, SambaError) as exc:
+                error = str(exc)
+        return render_template("user_form.html", error=error, username=username, editing=True)
+
+    @app.route("/users/<username>/delete", methods=["POST"])
+    @login_required
+    def user_delete(username: str):
+        try:
+            username = validate_samba_username(username)
+            delete_samba_user(username)
+            flash(f"Samba-Benutzer „{username}“ wurde gelöscht.", "success")
+        except (ValidationError, SambaError) as exc:
+            flash(str(exc), "error")
+        return redirect(url_for("users_list"))
+
+  # --- Service / Diagnostics ---
+
+    @app.route("/status")
+    @login_required
+    def status_page():
+        try:
+            status = service_status()
+            config_check = run_testparm()
+        except SambaError as exc:
+            flash(str(exc), "error")
+            status = {"active": "unknown", "is_running": False, "output": ""}
+            config_check = {"success": False, "output": str(exc)}
+        return render_template("status.html", status=status, config_check=config_check)
+
+    @app.route("/service/reload", methods=["POST"])
+    @login_required
+    def service_reload():
+        try:
+            reload_samba()
+            flash("Samba-Dienst (smbd) wurde neu geladen.", "success")
+        except SambaError as exc:
+            flash(str(exc), "error")
+        return redirect(url_for("status_page"))
+
+    @app.route("/service/restart", methods=["POST"])
+    @login_required
+    def service_restart():
+        try:
+            restart_samba()
+            flash("Samba-Dienst (smbd) wurde neu gestartet.", "success")
+        except SambaError as exc:
+            flash(str(exc), "error")
+        return redirect(url_for("status_page"))
+
+    @app.route("/konfiguration/pruefen", methods=["GET", "POST"])
+    @login_required
+    def config_check_page():
+        try:
+            config_check = run_testparm()
+        except SambaError as exc:
+            config_check = {"success": False, "output": str(exc)}
+        return render_template("config_check.html", config_check=config_check)
+
+    @app.route("/testparm")
+    @login_required
+    def testparm_redirect():
+        """Alte URL – Weiterleitung zur neuen Seite."""
+        return redirect(url_for("config_check_page"))
+
+    @app.route("/system/updates", methods=["GET", "POST"])
+    @login_required
+    def system_updates():
+        upgradable_packages: list[str] = []
+        check_error: str | None = None
+        last_output: str | None = None
+        last_success: bool | None = None
+        job_running = False
+
+        try:
+            job = apt_job_status()
+            job_running = job.get("status") == "running"
+        except SystemUpdateError:
+            job = {"status": "idle"}
+
+        if request.method == "POST":
+            action = (request.form.get("action") or "").strip()
+            try:
+                if action == "update":
+                    last_output = apt_update()
+                    last_success = True
+                    flash("Paketlisten wurden aktualisiert.", "success")
+                    try:
+                        upgradable_packages, check_out = apt_list_upgradable()
+                        if upgradable_packages:
+                            last_output = f"{last_output}\n\n{check_out}"
+                        else:
+                            last_output = (
+                                f"{last_output}\n\n"
+                                "Keine aktualisierbaren Pakete (System ist aktuell)."
+                            )
+                    except SystemUpdateError:
+                        pass
+                else:
+                    flash("Unbekannte Aktion.", "error")
+            except SystemUpdateError as exc:
+                last_output = str(exc)
+                last_success = False
+                flash(str(exc).splitlines()[0], "error")
+
+        if not upgradable_packages:
+            upgradable_packages, err = check_upgradable_safe()
+            if err and not check_error:
+                check_error = err
+
+        return render_template(
+            "system_updates.html",
+            upgradable_packages=upgradable_packages,
+            upgradable_count=len(upgradable_packages),
+            check_error=check_error,
+            last_output=last_output,
+            last_success=last_success,
+            job_running=job_running,
+            job=job,
+        )
+
+    @app.route("/system/updates/job/start", methods=["POST"])
+    @login_required
+    def system_updates_job_start():
+        try:
+            apt_start_install_job()
+            return jsonify({"ok": True, "status": "running"})
+        except SystemUpdateError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+
+    @app.route("/system/updates/job")
+    @login_required
+    def system_updates_job():
+        try:
+            return jsonify(apt_job_status())
+        except SystemUpdateError as exc:
+            return jsonify({"status": "error", "error": str(exc)}), 500
+
+    @app.errorhandler(403)
+    def forbidden(_exc):
+        msg = "Zugriff verweigert."
+        if request.method == "POST":
+            msg = "Sitzung abgelaufen oder ungültiges Formular. Bitte Seite neu laden."
+        return render_template("error.html", code=403, message=msg), 403
+
+    @app.errorhandler(404)
+    def not_found(_exc):
+        return render_template("error.html", code=404, message="Seite nicht gefunden."), 404
+
+    @app.errorhandler(500)
+    def server_error(_exc):
+        return render_template("error.html", code=500, message="Interner Serverfehler."), 500
+
+    return app
+
+
+def _default_share_path(base_path: str) -> str:
+    return f"{base_path.rstrip('/')}/"
+
+
+def _load_samba_users_for_form() -> list[str]:
+    try:
+        return list_samba_users()
+    except SambaError:
+        return []
+
+
+def _share_from_form_values(form) -> Share:
+    """Formularwerte ohne Validierung (Anzeige nach Fehler)."""
+    guest_ok = form.get("guest_ok") == "on"
+    return Share(
+        name=(form.get("name") or "").strip(),
+        path=(form.get("path") or "").strip(),
+        comment=(form.get("comment") or "").strip(),
+        browseable=form.get("browseable") == "on",
+        read_only=form.get("read_only") == "on",
+        guest_ok=guest_ok,
+        valid_users=[] if guest_ok else form.getlist("valid_users"),
+        enabled=form.get("enabled", "on") == "on",
+    )
+
+
+def _share_from_form(form) -> Share:
+    config = load_config()
+    name = validate_share_name(form.get("name") or "")
+    path = validate_share_path(form.get("path") or "", config["shares_base_path"])
+    comment = validate_comment(form.get("comment"))
+    guest_ok = form.get("guest_ok") == "on"
+    if guest_ok:
+        valid_users = []
+    else:
+        valid_users = parse_valid_users_checked(form.getlist("valid_users"))
+        if not valid_users:
+            raise ValidationError(
+                "Mindestens einen Samba-Benutzer auswählen oder Gast-Zugriff aktivieren."
+            )
+    return Share(
+        name=name,
+        path=path,
+        comment=comment,
+        browseable=form.get("browseable") == "on",
+        read_only=form.get("read_only") == "on",
+        guest_ok=guest_ok,
+        valid_users=valid_users,
+        enabled=form.get("enabled", "on") == "on",
+    )
+
+
+app = create_app()

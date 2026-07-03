@@ -1,0 +1,10 @@
+{
+  "bind_host": "127.0.0.1",
+  "bind_port": 8080,
+  "shares_base_path": "/srv/shares",
+  "samba_shares_file": "/etc/samba/smb-shares.conf",
+  "admin_username": "admin",
+  "admin_password_hash": "$2b$12$...",
+  "session_secret": "64-zeichen-hex-string",
+  "session_lifetime_hours": 8
+}

@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Anmelden – {{ app_name }}{% endblock %}
+{% block content %}
+<div class="login-page">
+  <div class="login-card">
+    <div class="login-brand">
+      <div class="logo-icon">SMB</div>
+      <h1>{{ app_name }}</h1>
+      <p class="subtitle">Interne Samba-Verwaltung</p>
+    </div>
+    {% if error %}
+    <div class="notice notice-error" role="alert">
+      <span class="toast-icon" aria-hidden="true">!</span>
+      <span>{{ error }}</span>
+    </div>
+    {% endif %}
+    <form method="post" action="{{ url_for('login') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="form-group">
+        <label for="username">Benutzername</label>
+        <input type="text" id="username" name="username" required autocomplete="username" autofocus placeholder="admin">
+      </div>
+      <div class="form-group">
+        <label for="password">Passwort</label>
+        <input type="password" id="password" name="password" required autocomplete="current-password" placeholder="••••••••">
+      </div>
+      <button type="submit" class="btn btn-primary" style="width:100%;margin-top:0.5rem;padding:0.75rem">Anmelden</button>
+    </form>
+    <p class="hint" style="text-align:center;margin-top:1.25rem">Nur für den internen Netzwerkbetrieb</p>
+  </div>
+</div>
+{% endblock %}

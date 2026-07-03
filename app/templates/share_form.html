@@ -1,0 +1,216 @@
+{% extends "base.html" %}
+{% block title %}{% if editing %}Freigabe bearbeiten{% else %}Neue Freigabe{% endif %} – {{ app_name }}{% endblock %}
+{% block page_heading %}{% if editing %}Freigabe bearbeiten{% else %}Neue Freigabe{% endif %}{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>{% if editing %}Freigabe bearbeiten{% else %}Neue Freigabe{% endif %}</h1>
+  <p class="lead">Pfad muss unter <code>{{ config.shares_base_path }}</code> liegen.</p>
+</div>
+
+{% if error %}
+<div class="notice notice-error" role="alert">
+  <span class="toast-icon" aria-hidden="true">!</span>
+  <span>{{ error }}</span>
+</div>
+{% endif %}
+
+<div class="card form-card">
+  <form method="post" id="share-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="form-group">
+      <label for="name">Freigabename</label>
+      <input type="text" id="name" name="name" value="{{ share.name }}" required
+             pattern="[a-zA-Z0-9_\- ]+" title="Buchstaben, Zahlen, Leerzeichen, _ und -"
+             placeholder="Media">
+      <p class="hint">SMB-Share-Name im Netzwerk, z. B. „Media“ oder „Backup NAS“</p>
+    </div>
+
+    <div class="form-group">
+      <label for="path">Pfad auf dem Server</label>
+      <input type="text" id="path" name="path" value="{{ share.path }}" required
+             placeholder="{{ config.shares_base_path }}/media">
+      {% if not editing %}
+      <p class="hint">Basis-Pfad ist vorausgefüllt – nur noch den Unterordner ergänzen, z. B. <code>media</code>.</p>
+      {% else %}
+      <p class="hint">Verzeichnis wird bei Bedarf automatisch erstellt.</p>
+      {% endif %}
+    </div>
+
+    <div class="form-group">
+      <label for="comment">Beschreibung</label>
+      <input type="text" id="comment" name="comment" value="{{ share.comment }}" maxlength="256"
+             placeholder="Optional">
+    </div>
+
+    <div class="form-group" id="users-section">
+      <label for="user-dropdown-trigger">Erlaubte Benutzer</label>
+      {% if samba_users or share.valid_users %}
+      <div class="user-dropdown" id="user-dropdown">
+        <button type="button" class="user-dropdown-trigger" id="user-dropdown-trigger"
+                aria-expanded="false" aria-controls="user-dropdown-panel">
+          <span class="user-dropdown-summary" id="user-dropdown-summary">Benutzer auswählen …</span>
+          <span class="user-dropdown-chevron" aria-hidden="true">▾</span>
+        </button>
+        <div class="user-dropdown-panel" id="user-dropdown-panel" hidden>
+          <div class="user-picker" id="user-picker">
+            {% for user in samba_users %}
+            <label class="user-picker-item">
+              <input type="checkbox" name="valid_users" value="{{ user }}"
+                     {% if user in share.valid_users %}checked{% endif %}>
+              <span class="user-avatar user-avatar-sm">{{ user[0]|upper }}</span>
+              <span>{{ user }}</span>
+            </label>
+            {% endfor %}
+            {% for user in share.valid_users %}
+            {% if user not in samba_users %}
+            <label class="user-picker-item user-picker-item-orphan">
+              <input type="checkbox" name="valid_users" value="{{ user }}" checked>
+              <span class="user-avatar user-avatar-sm">{{ user[0]|upper }}</span>
+              <span>{{ user }}</span>
+            </label>
+            {% endif %}
+            {% endfor %}
+            {% if not samba_users %}
+            <p class="user-dropdown-empty">Keine Samba-Benutzer vorhanden.</p>
+            {% endif %}
+          </div>
+        </div>
+        <div class="user-selected-chips" id="user-selected-chips"></div>
+      </div>
+      <p class="hint">Dropdown öffnen und Benutzer anhaken. Mehrere möglich. Bei Gast-Zugriff nicht erforderlich.</p>
+      {% else %}
+      <div class="empty-state" style="padding:1rem 0">
+        <p>Keine Samba-Benutzer vorhanden.</p>
+        <a href="{{ url_for('user_new') }}" class="btn btn-secondary btn-sm">Benutzer anlegen</a>
+      </div>
+      {% endif %}
+    </div>
+
+    <div class="checkbox-grid">
+      <label class="checkbox-row">
+        <input type="checkbox" id="browseable" name="browseable" {% if share.browseable %}checked{% endif %}>
+        <span>Im Netzwerk sichtbar</span>
+      </label>
+      <label class="checkbox-row">
+        <input type="checkbox" id="read_only" name="read_only" {% if share.read_only %}checked{% endif %}>
+        <span>Nur Lesen</span>
+      </label>
+      <label class="checkbox-row">
+        <input type="checkbox" id="guest_ok" name="guest_ok" {% if share.guest_ok %}checked{% endif %}>
+        <span>Gast-Zugriff erlauben</span>
+      </label>
+      <label class="checkbox-row">
+        <input type="checkbox" id="enabled" name="enabled" {% if share.enabled %}checked{% endif %}>
+        <span>Freigabe aktiv</span>
+      </label>
+    </div>
+
+    <div class="btn-group" style="margin-top:1.25rem">
+      <button type="submit" class="btn btn-primary">Speichern</button>
+      <a href="{{ url_for('index') }}" class="btn btn-secondary">Abbrechen</a>
+    </div>
+  </form>
+</div>
+
+<script>
+(function () {
+  const path = document.getElementById('path');
+  {% if not editing %}
+  if (path) {
+    path.focus();
+    const len = path.value.length;
+    path.setSelectionRange(len, len);
+  }
+  {% endif %}
+
+  const guest = document.getElementById('guest_ok');
+  const section = document.getElementById('users-section');
+  const dropdown = document.getElementById('user-dropdown');
+  const trigger = document.getElementById('user-dropdown-trigger');
+  const panel = document.getElementById('user-dropdown-panel');
+  const summary = document.getElementById('user-dropdown-summary');
+  const chips = document.getElementById('user-selected-chips');
+  const picker = document.getElementById('user-picker');
+
+  function selectedUsers() {
+    if (!picker) return [];
+    return Array.from(picker.querySelectorAll('input[type=checkbox]:checked')).map(function (cb) {
+      return cb.value;
+    });
+  }
+
+  function updateUserDisplay() {
+    if (!summary || !chips) return;
+    const users = selectedUsers();
+    if (users.length === 0) {
+      summary.textContent = 'Benutzer auswählen …';
+    } else if (users.length === 1) {
+      summary.textContent = users[0];
+    } else {
+      summary.textContent = users.length + ' Benutzer ausgewählt';
+    }
+    chips.innerHTML = '';
+    users.forEach(function (name) {
+      const chip = document.createElement('span');
+      chip.className = 'user-chip';
+      chip.textContent = name;
+      chips.appendChild(chip);
+    });
+  }
+
+  function closeDropdown() {
+    if (!panel || !trigger) return;
+    panel.hidden = true;
+    trigger.setAttribute('aria-expanded', 'false');
+    dropdown && dropdown.classList.remove('is-open');
+  }
+
+  function openDropdown() {
+    if (!panel || !trigger || section.classList.contains('user-section-disabled')) return;
+    panel.hidden = false;
+    trigger.setAttribute('aria-expanded', 'true');
+    dropdown && dropdown.classList.add('is-open');
+  }
+
+  function toggleDropdown() {
+    if (!panel || panel.hidden) openDropdown();
+    else closeDropdown();
+  }
+
+  if (trigger && panel) {
+    trigger.addEventListener('click', function (e) {
+      e.preventDefault();
+      toggleDropdown();
+    });
+    document.addEventListener('click', function (e) {
+      if (!dropdown || !dropdown.contains(e.target)) closeDropdown();
+    });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') closeDropdown();
+    });
+  }
+
+  if (picker) {
+    picker.addEventListener('change', updateUserDisplay);
+    updateUserDisplay();
+  }
+
+  if (!guest || !section) return;
+
+  function syncUsers() {
+    const on = guest.checked;
+    section.classList.toggle('user-section-disabled', on);
+    if (picker) {
+      picker.querySelectorAll('input[type=checkbox]').forEach(function (cb) {
+        cb.disabled = on;
+        if (on) cb.checked = false;
+      });
+    }
+    if (on) closeDropdown();
+    updateUserDisplay();
+  }
+  guest.addEventListener('change', syncUsers);
+  syncUsers();
+})();
+</script>
+{% endblock %}

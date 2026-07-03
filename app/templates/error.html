@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Fehler {{ code }} – {{ app_name }}{% endblock %}
+{% block content %}
+<div class="login-page">
+  <div class="card" style="max-width:420px;text-align:center">
+    <div style="font-size:3rem;font-weight:800;color:var(--accent);margin-bottom:0.5rem">{{ code }}</div>
+    <p style="margin-bottom:1.5rem;color:var(--text-secondary)">{{ message }}</p>
+    <a href="{{ url_for('index') }}" class="btn btn-primary">Zur Startseite</a>
+  </div>
+</div>
+{% endblock %}

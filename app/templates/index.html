@@ -1,0 +1,152 @@
+{% extends "base.html" %}
+{% block title %}Freigaben – {{ app_name }}{% endblock %}
+{% block page_heading %}SMB-Freigaben{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Freigaben verwalten</h1>
+  <p class="lead">SMB-Shares auf diesem Server – Basis: <code>{{ config.shares_base_path }}</code></p>
+</div>
+
+<div class="stats-grid">
+  <div class="stat-card {% if status.is_running %}accent{% endif %}">
+    <span class="stat-label">Samba-Dienst</span>
+    <span class="stat-value">
+      {% if status.is_running %}
+        <span class="badge ok">Aktiv</span>
+      {% else %}
+        <span class="badge off">{{ status.active }}</span>
+      {% endif %}
+    </span>
+    <span class="stat-hint">smbd Status</span>
+  </div>
+  <div class="stat-card">
+    <span class="stat-label">Freigaben</span>
+    <span class="stat-value">{{ shares|length }}</span>
+    <span class="stat-hint">konfigurierte Shares</span>
+  </div>
+  {% if overview %}
+  <div class="stat-card {% if overview.disk_percent > 85 %}accent{% endif %}">
+    <span class="stat-label">Speicher</span>
+    <span class="stat-value" style="font-size:1.15rem">{{ overview.disk_percent }}%</span>
+    <span class="stat-hint">
+      {{ format_bytes(overview.disk_used) }} / {{ format_bytes(overview.disk_total) }}
+      {% if overview.disk_path %}<br><code>{{ overview.disk_path }}</code>{% endif %}
+    </span>
+  </div>
+  <div class="stat-card {% if overview.upgradable_count > 0 %}accent{% endif %}">
+    <span class="stat-label">Updates</span>
+    <span class="stat-value">
+      {% if overview.upgradable_count > 0 %}
+        <span class="badge warn">{{ overview.upgradable_count }}</span>
+      {% else %}
+        <span class="badge ok">Aktuell</span>
+      {% endif %}
+    </span>
+    <span class="stat-hint">aktualisierbare Pakete</span>
+  </div>
+  <div class="stat-card {% if overview.reboot_required %}accent{% endif %}">
+    <span class="stat-label">Neustart</span>
+    <span class="stat-value">
+      {% if overview.reboot_required %}
+        <span class="badge warn">Erforderlich</span>
+      {% else %}
+        <span class="badge ok">Nein</span>
+      {% endif %}
+    </span>
+    <span class="stat-hint">
+      {% if overview.reboot_required and overview.reboot_reason %}
+        {{ overview.reboot_reason }}
+      {% else %}
+        Laufzeit: {{ format_uptime(overview.uptime_seconds) }}
+      {% endif %}
+    </span>
+  </div>
+  {% elif overview_error %}
+  <div class="stat-card">
+    <span class="stat-label">System</span>
+    <span class="stat-value"><span class="badge off">—</span></span>
+    <span class="stat-hint">{{ overview_error }}</span>
+  </div>
+  {% endif %}
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <span class="card-title">Aktionen</span>
+    <div class="btn-group">
+      <a href="{{ url_for('share_new') }}" class="btn btn-primary">+ Neue Freigabe</a>
+      <a href="{{ url_for('config_check_page') }}" class="btn btn-secondary">Konfiguration prüfen</a>
+      <a href="{{ url_for('system_updates') }}" class="btn btn-secondary">System-Updates</a>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <span class="card-title">Alle Freigaben</span>
+  </div>
+  {% if shares %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Pfad</th>
+          <th>Zugriff</th>
+          <th>Status</th>
+          <th>Aktionen</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for share in shares %}
+        <tr>
+          <td>
+            <div class="share-name">{{ share.name }}</div>
+            {% if share.comment %}<div class="hint">{{ share.comment }}</div>{% endif %}
+          </td>
+          <td><code>{{ share.path }}</code></td>
+          <td>
+            {% if share.guest_ok %}
+              <span class="badge neutral">Gast</span>
+            {% else %}
+              <span class="hint">{{ share.valid_users|join(', ') }}</span>
+            {% endif %}
+            <span class="badge {% if share.read_only %}ro{% else %}rw{% endif %}" style="margin-left:0.35rem">
+              {{ 'Nur Lesen' if share.read_only else 'Lesen/Schreiben' }}
+            </span>
+          </td>
+          <td>
+            {% if share.enabled %}
+              <span class="badge ok">Aktiv</span>
+            {% else %}
+              <span class="badge off">Deaktiviert</span>
+            {% endif %}
+          </td>
+          <td class="actions-cell">
+            <div class="btn-group">
+              <a href="{{ url_for('share_edit', share_name=share.name) }}" class="btn btn-secondary btn-sm">Bearbeiten</a>
+              <form class="inline-form" method="post" action="{{ url_for('share_toggle', share_name=share.name) }}" data-loading>
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-secondary btn-sm">
+                  {{ 'Aus' if share.enabled else 'An' }}
+                </button>
+              </form>
+              <a href="{{ url_for('share_delete', share_name=share.name) }}" class="btn btn-danger btn-sm">Löschen</a>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <svg class="empty-state-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+      <path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/>
+    </svg>
+    <p>Noch keine Freigaben angelegt.</p>
+    <a href="{{ url_for('share_new') }}" class="btn btn-primary">Erste Freigabe erstellen</a>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

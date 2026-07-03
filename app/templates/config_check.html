@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Konfiguration prüfen – {{ app_name }}{% endblock %}
+{% block page_heading %}Konfiguration prüfen{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Samba-Konfiguration prüfen</h1>
+  <p class="lead">Validiert <code>smb.conf</code> und alle Freigaben vor dem Neuladen des Dienstes.</p>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <span class="card-title">Ergebnis</span>
+    {% if config_check.success %}
+      <span class="badge ok">Konfiguration gültig</span>
+    {% else %}
+      <span class="badge off">Konfiguration ungültig</span>
+    {% endif %}
+  </div>
+
+  <form method="post" action="{{ url_for('config_check_page') }}" style="margin-bottom:1rem" data-loading>
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button type="submit" class="btn btn-secondary">Erneut prüfen</button>
+  </form>
+
+  <pre class="output">{{ config_check.output or 'Keine Ausgabe.' }}</pre>
+  <p class="hint" style="margin-top:0.75rem">Technischer Befehl: <code>testparm -s</code></p>
+</div>
+{% endblock %}

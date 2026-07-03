@@ -1,0 +1,31 @@
+[Unit]
+Description=Simple Samba UI – interne Web-Verwaltung
+Documentation=file:/opt/simple-samba-ui/README.md
+After=network-online.target smbd.service simple-samba-ui-priv.service
+Wants=network-online.target simple-samba-ui-priv.service
+
+[Service]
+Type=simple
+User=samba-ui
+Group=samba-ui
+WorkingDirectory=/opt/simple-samba-ui
+Environment=PYTHONUNBUFFERED=1
+Environment=SAMBA_UI_SHARES_BASE=@SHARES_BASE@
+ExecStart=/opt/simple-samba-ui/venv/bin/gunicorn -c /opt/simple-samba-ui/gunicorn.conf.py wsgi:app
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=false
+ReadWritePaths=/etc/simple-samba-ui
+ReadOnlyPaths=/etc/samba/smb-shares.conf
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LockPersonality=true
+MemoryDenyWriteExecute=false
+
+[Install]
+WantedBy=multi-user.target

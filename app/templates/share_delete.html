@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Freigabe löschen – {{ app_name }}{% endblock %}
+{% block page_heading %}Freigabe löschen{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Freigabe „{{ share.name }}“ löschen</h1>
+  <p class="lead">Die SMB-Freigabe wird aus der Samba-Konfiguration entfernt.</p>
+</div>
+
+<div class="card" style="border-color:rgba(244,63,94,0.3)">
+  <div class="card-header">
+    <span class="card-title">Bestätigung</span>
+  </div>
+
+  <dl class="delete-details">
+    <dt>Name</dt>
+    <dd><strong>{{ share.name }}</strong></dd>
+    <dt>Pfad</dt>
+    <dd><code>{{ share.path }}</code></dd>
+    {% if share.comment %}
+    <dt>Beschreibung</dt>
+    <dd>{{ share.comment }}</dd>
+    {% endif %}
+  </dl>
+
+  <form method="post" action="{{ url_for('share_delete', share_name=share.name) }}"
+        data-confirm="Freigabe „{{ share.name }}“ wirklich löschen?"
+        data-confirm-title="Freigabe löschen"
+        data-confirm-danger>
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="warning-box">
+      <label class="checkbox-row checkbox-row-warning">
+        <input type="checkbox" id="delete_files" name="delete_files">
+        <span>
+          <strong>Ordner und Dateien ebenfalls löschen</strong><br>
+          <span class="hint" style="margin-top:0.25rem;display:block">
+            Löscht dauerhaft <code>{{ share.path }}</code> inklusive aller Inhalte.
+            Diese Aktion kann nicht rückgängig gemacht werden.
+          </span>
+        </span>
+      </label>
+    </div>
+
+    <p class="hint" style="margin:1rem 0">
+      Ohne Häkchen wird nur die Freigabe entfernt – die Daten bleiben auf dem Server.
+    </p>
+
+    <div class="btn-group">
+      <button type="submit" class="btn btn-danger">
+        Freigabe löschen
+      </button>
+      <a href="{{ url_for('index') }}" class="btn btn-secondary">Abbrechen</a>
+    </div>
+  </form>
+</div>
+{% endblock %}
