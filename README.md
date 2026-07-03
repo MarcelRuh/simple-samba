@@ -94,7 +94,7 @@ Simple Samba UI lässt sich **neben einer laufenden Samba-Installation** einrich
 | Was passiert | Details |
 |--------------|---------|
 | **Daten** | Bleiben unverändert |
-| **`smb.conf`** | Nur eine `include`-Zeile für `smb-shares.conf` am Ende |
+| **`smb.conf`** | `include = /etc/samba/smb-shares.conf` in **[global]** (nicht am Dateiende) |
 | **Bestehende Freigaben** | Bleiben aktiv; optional per UI importieren |
 | **Samba-Benutzer** | Werden nicht geändert |
 

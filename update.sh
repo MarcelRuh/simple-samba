@@ -19,6 +19,7 @@ ensure_service_user
 copy_application_files "${SCRIPT_DIR}"
 setup_python_venv
 fix_smb_conf_include 2>/dev/null || true
+auto_import_smb_shares
 install_systemd_units "${SCRIPT_DIR}"
 set_permissions
 start_services

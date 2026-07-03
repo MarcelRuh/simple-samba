@@ -151,14 +151,19 @@ def _backup_smb_conf() -> Path | None:
 
 def cmd_list_importable_shares() -> tuple[bool, str]:
     _ensure_app_import_path()
-    from app.smbconf_parser import filter_importable, parse_smb_conf_shares
+    from app.smbconf_parser import (
+        filter_importable,
+        parse_all_smb_conf_shares,
+        repair_smb_conf_include,
+    )
     from app.samba import read_shares
 
     if not SMB_CONF.is_file():
         return True, json.dumps({"importable": [], "error": "smb.conf nicht gefunden."}, ensure_ascii=False)
 
     try:
-        smbconf_shares = parse_smb_conf_shares(SMB_CONF.read_text(encoding="utf-8"))
+        repair_smb_conf_include(SMB_CONF)
+        smbconf_shares = parse_all_smb_conf_shares(SMB_CONF)
     except (OSError, configparser.Error) as exc:
         return True, json.dumps({"importable": [], "error": str(exc)}, ensure_ascii=False)
 
@@ -211,7 +216,11 @@ def _update_config_shares_base(paths: list[str]) -> str:
 
 def cmd_import_shares(body_text: str) -> tuple[bool, str]:
     _ensure_app_import_path()
-    from app.smbconf_parser import comment_out_sections, parse_smb_conf_shares
+    from app.smbconf_parser import (
+        comment_out_shares_in_files,
+        parse_all_smb_conf_shares_with_sources,
+        repair_smb_conf_include,
+    )
     from app.samba import Share, read_shares, shares_to_config_content
 
     try:
@@ -227,7 +236,9 @@ def cmd_import_shares(body_text: str) -> tuple[bool, str]:
     if not SMB_CONF.is_file():
         return False, "smb.conf nicht gefunden."
 
-    smbconf_shares = parse_smb_conf_shares(SMB_CONF.read_text(encoding="utf-8"))
+    repair_smb_conf_include(SMB_CONF)
+    located_shares = parse_all_smb_conf_shares_with_sources(SMB_CONF)
+    smbconf_shares = [item.share for item in located_shares]
     selected = [share for share in smbconf_shares if share.name in names]
     if len(selected) != len(names):
         missing = names - {share.name for share in selected}
@@ -246,19 +257,26 @@ def cmd_import_shares(body_text: str) -> tuple[bool, str]:
 
     content = shares_to_config_content(merged)
     smb_conf_backup = None
+    source_backups: dict[Path, Path] = {}
     try:
         if comment_out:
-            smb_conf_backup = _backup_smb_conf()
-            updated = comment_out_sections(
-                SMB_CONF.read_text(encoding="utf-8"),
-                {share.name for share in selected},
-            )
-            SMB_CONF.write_text(updated, encoding="utf-8")
+            if SMB_CONF.is_file():
+                smb_conf_backup = _backup_smb_conf()
+            for source_path, updated in comment_out_shares_in_files(located_shares, names).items():
+                BACKUP_DIR.mkdir(parents=True, exist_ok=True, mode=0o750)
+                ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+                backup = BACKUP_DIR / f"{source_path.name}.{ts}.bak"
+                shutil.copy2(source_path, backup)
+                source_backups[source_path] = backup
+                source_path.write_text(updated, encoding="utf-8")
 
         return cmd_write_shares(content)
     except OSError as exc:
         if smb_conf_backup and smb_conf_backup.is_file():
             shutil.copy2(smb_conf_backup, SMB_CONF)
+        for source_path, backup in source_backups.items():
+            if backup.is_file():
+                shutil.copy2(backup, source_path)
         return False, f"Import fehlgeschlagen: {exc}"
 
 

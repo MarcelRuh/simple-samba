@@ -52,39 +52,44 @@ def _save_config_shares_base(new_base: str) -> None:
     _log(f"Basisverzeichnis angepasst: {new_base}")
 
 
-def _backup_smb_conf() -> None:
-    if not SMB_CONF.is_file():
+def _backup_config_file(path: Path) -> None:
+    if not path.is_file():
         return
     BACKUP_DIR.mkdir(parents=True, exist_ok=True, mode=0o750)
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    shutil.copy2(SMB_CONF, BACKUP_DIR / f"smb.conf.{ts}.bak")
+    safe_name = path.name.replace("/", "_")
+    shutil.copy2(path, BACKUP_DIR / f"{safe_name}.{ts}.bak")
 
 
 def main() -> int:
     _ensure_import_path()
     from app.samba import Share, read_shares, shares_to_config_content
     from app.smbconf_parser import (
-        comment_out_sections,
+        comment_out_shares_in_files,
         filter_importable,
         infer_shares_base_path,
-        parse_smb_conf_shares,
+        parse_all_smb_conf_shares_with_sources,
+        repair_smb_conf_include,
     )
 
     if not SMB_CONF.is_file():
         _log("Keine smb.conf – Import übersprungen.")
         return 0
 
+    if repair_smb_conf_include(SMB_CONF):
+        _log("Include-Zeile in [global] repariert.")
+
     try:
-        smb_content = SMB_CONF.read_text(encoding="utf-8")
-        smbconf_shares = parse_smb_conf_shares(smb_content)
+        located_shares = parse_all_smb_conf_shares_with_sources(SMB_CONF)
     except (OSError, configparser.Error) as exc:
         _log(f"smb.conf nicht lesbar: {exc}")
         return 1
 
-    if not smbconf_shares:
+    if not located_shares:
         _log("Keine Freigaben in smb.conf gefunden.")
         return 0
 
+    smbconf_shares = [item.share for item in located_shares]
     cfg = _load_config()
     shares_file = Path(cfg.get("samba_shares_file") or "/etc/samba/smb-shares.conf")
     existing = read_shares(str(shares_file)) if shares_file.is_file() else []
@@ -93,6 +98,7 @@ def main() -> int:
         _log("Alle smb.conf-Freigaben sind bereits importiert.")
         return 0
 
+    import_names = {share.name for share in importable}
     all_paths = [share.path for share in existing] + [share.path for share in importable]
     current_base = cfg.get("shares_base_path", "/srv/shares")
     new_base = infer_shares_base_path(all_paths, default=current_base)
@@ -120,9 +126,9 @@ def main() -> int:
     shares_file.write_text(shares_to_config_content(merged), encoding="utf-8")
     os.chmod(shares_file, 0o644)
 
-    _backup_smb_conf()
-    updated = comment_out_sections(smb_content, {share.name for share in importable})
-    SMB_CONF.write_text(updated, encoding="utf-8")
+    for source_path, content in comment_out_shares_in_files(located_shares, import_names).items():
+        _backup_config_file(source_path)
+        source_path.write_text(content, encoding="utf-8")
 
     names = ", ".join(share.name for share in importable)
     _log(f"Importiert: {names} (Basis: {new_base})")
