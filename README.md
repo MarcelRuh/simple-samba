@@ -35,8 +35,8 @@ Gunicorn (User: samba-ui) – Flask-App
 ## Installation
 
 ```bash
-git clone https://github.com/DEIN-USER/simple-samba-ui.git
-cd simple-samba-ui
+git clone https://github.com/MarcelRuh/simple-samba.git
+cd simple-samba
 sudo bash install.sh
 ```
 
