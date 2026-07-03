@@ -19,6 +19,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "admin_password_hash": "",
     "session_secret": "",
     "session_lifetime_hours": 8,
+    "github_repo": "MarcelRuh/simple-samba",
+    "github_branch": "main",
+    "update_check_enabled": True,
+    "update_check_interval_hours": 6,
 }
 
 

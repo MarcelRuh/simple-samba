@@ -3,8 +3,63 @@
 {% block page_heading %}System-Updates{% endblock %}
 {% block content %}
 <div class="page-header">
-  <h1>Paket-Updates (apt)</h1>
-  <p class="lead">Paketlisten aktualisieren oder alle Updates in einem Schritt installieren.</p>
+  <h1>Updates</h1>
+  <p class="lead">App-Updates von GitHub und Debian-Pakete (apt) verwalten.</p>
+</div>
+
+{% if app_update %}
+<div class="card {% if app_update.update_available %}card-accent{% endif %}">
+  <div class="card-header">
+    <span class="card-title">Simple Samba UI</span>
+    {% if app_update.update_available %}
+      <span class="badge warn">v{{ app_update.latest_version }} verfügbar</span>
+    {% else %}
+      <span class="badge ok">v{{ app_version }} aktuell</span>
+    {% endif %}
+  </div>
+
+  <p class="hint" style="margin-bottom:0.75rem">
+    Installierte Version: <code>v{{ app_update.current_version }}</code>
+    {% if app_update.latest_version %}
+      · GitHub (<code>{{ app_update.github_branch }}</code>): <code>v{{ app_update.latest_version }}</code>
+    {% endif %}
+    {% if app_update.from_cache %}
+      · zuletzt geprüft (Cache)
+    {% endif %}
+  </p>
+
+  {% if app_update.check_error %}
+  <div class="notice notice-error" role="alert" style="margin-bottom:0.75rem">
+    <span class="toast-icon" aria-hidden="true">!</span>
+    <span>Versionsprüfung fehlgeschlagen: {{ app_update.check_error }}</span>
+  </div>
+  {% endif %}
+
+  {% if app_update.update_available %}
+  <p class="hint" style="margin-bottom:0.75rem">
+    Eine neuere Version liegt auf GitHub bereit. Die App wird nicht automatisch aktualisiert –
+    bitte auf dem Server als root ausführen:
+  </p>
+  <pre class="output app-update-command">{{ app_update.bootstrap_command }}</pre>
+  <p class="hint" style="margin:0.75rem 0">Alternativ (manueller Clone):</p>
+  <pre class="output app-update-command">{{ app_update.manual_command }}</pre>
+  {% else %}
+  <p class="hint" style="margin:0">
+    Kein App-Update verfügbar. Repository:
+    <a href="{{ app_update.repo_url }}" target="_blank" rel="noopener noreferrer">{{ app_update.github_repo }}</a>
+  </p>
+  {% endif %}
+
+  <div class="btn-group" style="margin-top:1rem">
+    <a href="{{ url_for('system_updates', check_app=1) }}" class="btn btn-secondary btn-sm">Erneut prüfen</a>
+    <a href="{{ app_update.repo_url }}" class="btn btn-ghost btn-sm" target="_blank" rel="noopener noreferrer">GitHub öffnen</a>
+  </div>
+</div>
+{% endif %}
+
+<div class="page-header" style="margin-top:0.5rem">
+  <h2 style="font-size:1.15rem;margin:0">Debian-Pakete (apt)</h2>
+  <p class="lead" style="margin-top:0.35rem">Paketlisten aktualisieren oder alle System-Updates installieren.</p>
 </div>
 
 <div class="stats-grid">

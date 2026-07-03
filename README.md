@@ -9,6 +9,7 @@ Interne Web-Verwaltung für Samba-Freigaben auf Debian – klein, ohne Reverse P
 - Dienststatus & Konfigurationsprüfung (`testparm`)
 - System-Updates (`apt update`, `apt upgrade`, `apt autoremove`) mit Fortschrittsanzeige
 - Dashboard mit Speicher, Updates und Neustart-Status
+- **App-Update-Hinweis** – prüft GitHub auf neuere Versionen (Cache: 6 h)
 - CSRF-Schutz & Login-Rate-Limiting
 - Privilege-Daemon über Unix-Socket (kein sudo)
 
