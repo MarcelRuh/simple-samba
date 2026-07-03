@@ -11,7 +11,7 @@ from typing import Any
 CONFIG_PATH = Path("/etc/simple-samba-ui/config.json")
 
 DEFAULT_CONFIG: dict[str, Any] = {
-    "bind_host": "127.0.0.1",
+    "bind_host": "0.0.0.0",
     "bind_port": 8080,
     "shares_base_path": "/srv/shares",
     "samba_shares_file": "/etc/samba/smb-shares.conf",

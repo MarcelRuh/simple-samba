@@ -49,6 +49,7 @@ from app.system import (
     get_overview_safe,
 )
 from app.app_updates import get_app_update_info
+from app.network import resolve_access_host
 from app.validators import (
     ValidationError,
     parse_valid_users_checked,
@@ -85,10 +86,12 @@ def create_app() -> Flask:
                 app_update = get_app_update_info(cfg, __version__)
             except Exception:
                 app_update = None
+        access_host = resolve_access_host(str(cfg.get("bind_host", "0.0.0.0"))) if cfg else "127.0.0.1"
         return {
             "app_name": "Simple Samba UI",
             "app_version": __version__,
             "config": cfg,
+            "access_host": access_host,
             "csrf_token": get_csrf_token,
             "app_update": app_update,
         }
@@ -200,9 +203,7 @@ def create_app() -> Flask:
                     raise ValidationError(f"Freigabe „{share.name}“ existiert bereits.")
                 shares.append(share)
                 write_shares(shares, config["samba_shares_file"], config["shares_base_path"])
-                host = config.get("bind_host", "127.0.0.1")
-                if host in ("0.0.0.0", "::"):
-                    host = "127.0.0.1"
+                host = resolve_access_host(config.get("bind_host", "0.0.0.0"))
                 flash(
                     f"Freigabe „{share.name}“ erstellt. Sofort zugreifbar unter "
                     f"\\\\{host}\\{share.name} (Samba-Benutzer erforderlich).",

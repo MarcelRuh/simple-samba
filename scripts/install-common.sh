@@ -2,7 +2,7 @@
 # Gemeinsame Install-/Update-Logik für Simple Samba UI
 # Quellverzeichnis (Clone) → Deployment nach /opt/simple-samba-ui
 
-APP_VERSION="1.6.4"
+APP_VERSION="1.6.6"
 INSTALL_DIR="/opt/simple-samba-ui"
 CONFIG_DIR="/etc/simple-samba-ui"
 CONFIG_FILE="${CONFIG_DIR}/config.json"
@@ -26,9 +26,32 @@ require_root() {
     fi
 }
 
+detect_primary_ipv4() {
+    local ip=""
+    if command -v ip >/dev/null 2>&1; then
+        ip="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for (i = 1; i <= NF; i++) if ($i == "src") { print $(i + 1); exit }}')"
+    fi
+    if [[ -z "${ip}" ]]; then
+        ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
+    fi
+    echo "${ip:-127.0.0.1}"
+}
+
+resolve_access_host() {
+    local bind_host="${1:-0.0.0.0}"
+    case "${bind_host}" in
+        0.0.0.0|::|::0)
+            detect_primary_ipv4
+            ;;
+        *)
+            echo "${bind_host}"
+            ;;
+    esac
+}
+
 ensure_packages() {
     info "Prüfe Systempakete …"
-    local pkgs=(python3 python3-venv python3-pip git samba samba-common-bin)
+    local pkgs=(python3 python3-venv python3-pip git ca-certificates curl sudo samba samba-common-bin)
     local missing=()
     for pkg in "${pkgs[@]}"; do
         dpkg -s "${pkg}" &>/dev/null || missing+=("${pkg}")
@@ -120,11 +143,15 @@ set_permissions() {
     chmod 755 "${INSTALL_DIR}/scripts/simple-samba-ui-priv-daemon.py" 2>/dev/null || true
     chmod 755 "${INSTALL_DIR}/scripts/run-app-update.py" 2>/dev/null || true
     mkdir -p "${CONFIG_DIR}" "${BACKUP_DIR}"
-    chown samba-ui:samba-ui "${CONFIG_DIR}"
+    chown -R samba-ui:samba-ui "${CONFIG_DIR}"
     chmod 750 "${CONFIG_DIR}"
     chmod 750 "${BACKUP_DIR}"
     if [[ -f "${CONFIG_FILE}" ]]; then
         chmod 600 "${CONFIG_FILE}"
+    fi
+    if [[ -f "${CONFIG_DIR}/initial-password.txt" ]]; then
+        chown samba-ui:samba-ui "${CONFIG_DIR}/initial-password.txt"
+        chmod 600 "${CONFIG_DIR}/initial-password.txt"
     fi
     mkdir -p /var/lib/samba-ui/apt-job /var/lib/samba-ui/app-update-job
     chown root:samba-ui /var/lib/samba-ui/apt-job /var/lib/samba-ui/app-update-job
@@ -146,6 +173,18 @@ wait_for_priv_socket() {
     return 1
 }
 
+wait_for_service_active() {
+    local svc="$1"
+    local i
+    for i in $(seq 1 30); do
+        if systemctl is-active --quiet "${svc}"; then
+            return 0
+        fi
+        sleep 0.5
+    done
+    return 1
+}
+
 start_services() {
     info "Starte Dienste …"
     systemctl daemon-reload
@@ -153,22 +192,29 @@ start_services() {
     systemctl restart simple-samba-ui-priv
     wait_for_priv_socket || true
     systemctl restart simple-samba-ui
+    wait_for_service_active simple-samba-ui || warn "simple-samba-ui startet verzögert – prüfe journalctl -u simple-samba-ui"
     systemctl enable smbd nmbd 2>/dev/null || systemctl enable smbd 2>/dev/null || true
     systemctl start smbd nmbd 2>/dev/null || systemctl start smbd 2>/dev/null || true
 }
 
 verify_installation() {
     local ok=true
+    local svc
     for svc in simple-samba-ui-priv simple-samba-ui smbd; do
         if systemctl is-active --quiet "${svc}"; then
             info "${svc}: aktiv"
         else
             warn "${svc}: nicht aktiv"
+            if [[ "${svc}" == "simple-samba-ui" ]]; then
+                journalctl -u simple-samba-ui -n 15 --no-pager 2>/dev/null | sed 's/^/    /' || true
+            fi
             ok=false
         fi
     done
     if [[ "${ok}" == true ]]; then
         info "Installation erfolgreich verifiziert."
+    else
+        warn "Diagnose: journalctl -u simple-samba-ui -n 50"
     fi
 }
 
@@ -209,7 +255,9 @@ cfg = {
 path = Path("${CONFIG_FILE}")
 path.write_text(json.dumps(cfg, indent=2, ensure_ascii=False) + "\\n", encoding="utf-8")
 PY
+    chown samba-ui:samba-ui "${CONFIG_FILE}" 2>/dev/null || true
     chmod 600 "${CONFIG_FILE}"
     echo "${admin_password}" >"${CONFIG_DIR}/initial-password.txt"
+    chown samba-ui:samba-ui "${CONFIG_DIR}/initial-password.txt" 2>/dev/null || true
     chmod 600 "${CONFIG_DIR}/initial-password.txt"
 }

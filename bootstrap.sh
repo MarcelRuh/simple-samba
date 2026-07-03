@@ -1,11 +1,14 @@
 #!/bin/bash
 # Simple Samba UI – One-Liner-Installation
 #
-#   curl -fsSL https://raw.githubusercontent.com/MarcelRuh/simple-samba/main/bootstrap.sh | sudo bash
+#   curl -fsSL https://raw.githubusercontent.com/MarcelRuh/simple-samba/main/bootstrap.sh | bash
+#
+# Alternative ohne curl:
+#   wget -qO- https://raw.githubusercontent.com/MarcelRuh/simple-samba/main/bootstrap.sh | bash
 #
 # Optional (nicht-interaktiv):
-#   SIMPLE_SAMBA_BIND_HOST=192.168.1.10 SIMPLE_SAMBA_BIND_PORT=8080 \
-#     curl -fsSL ... | sudo bash
+#   SIMPLE_SAMBA_BIND_PORT=8080 \
+#     curl -fsSL https://raw.githubusercontent.com/MarcelRuh/simple-samba/main/bootstrap.sh | bash
 set -euo pipefail
 
 REPO_URL="${SIMPLE_SAMBA_REPO:-https://github.com/MarcelRuh/simple-samba.git}"
@@ -33,21 +36,44 @@ if [[ "${EUID}" -ne 0 ]]; then
             SIMPLE_SAMBA_BIND_HOST="${SIMPLE_SAMBA_BIND_HOST:-}" \
             SIMPLE_SAMBA_BIND_PORT="${SIMPLE_SAMBA_BIND_PORT:-}" \
             SIMPLE_SAMBA_NONINTERACTIVE="${SIMPLE_SAMBA_NONINTERACTIVE:-}" \
-            bash -c "curl -fsSL '${RAW_BOOTSTRAP}' | bash"
+            bash -s "$@" <<'BOOTSTRAP_INLINE'
+set -euo pipefail
+if command -v curl >/dev/null 2>&1; then
+  exec bash < <(curl -fsSL 'https://raw.githubusercontent.com/MarcelRuh/simple-samba/main/bootstrap.sh')
+elif command -v wget >/dev/null 2>&1; then
+  exec bash < <(wget -qO- 'https://raw.githubusercontent.com/MarcelRuh/simple-samba/main/bootstrap.sh')
+else
+  echo "curl oder wget erforderlich." >&2
+  exit 1
+fi
+BOOTSTRAP_INLINE
     fi
-    error "Bitte als root ausführen: curl ... | sudo bash"
+    error "Root erforderlich. Bitte als root ausführen:"
+    error "  su -"
+    error "  curl -fsSL ${RAW_BOOTSTRAP} | bash"
     exit 1
 fi
 
-ensure_cmd() {
-    local cmd="$1"
-    local pkg="${2:-$1}"
-    if command -v "${cmd}" >/dev/null 2>&1; then
+ensure_apt_pkg() {
+    local pkg="$1"
+    if dpkg -s "${pkg}" &>/dev/null 2>&1; then
         return 0
     fi
     info "Installiere ${pkg} …"
-    apt-get update -qq
     DEBIAN_FRONTEND=noninteractive apt-get install -y "${pkg}"
+}
+
+ensure_bootstrap_tools() {
+    if ! command -v apt-get >/dev/null 2>&1; then
+        error "apt-get nicht gefunden – nur Debian/Ubuntu werden unterstützt."
+        exit 1
+    fi
+    info "Prüfe Basiswerkzeuge (curl, git, sudo) …"
+    apt-get update -qq
+    ensure_apt_pkg ca-certificates
+    ensure_apt_pkg curl
+    ensure_apt_pkg git
+    ensure_apt_pkg sudo
 }
 
 echo ""
@@ -56,8 +82,7 @@ echo "  Simple Samba UI – Bootstrap"
 echo "========================================"
 echo ""
 
-ensure_cmd git
-ensure_cmd curl
+ensure_bootstrap_tools
 
 if [[ -d "${CLONE_DIR}/.git" ]]; then
     info "Aktualisiere Quellcode in ${CLONE_DIR} …"
@@ -71,4 +96,5 @@ else
 fi
 
 export SIMPLE_SAMBA_NONINTERACTIVE="${SIMPLE_SAMBA_NONINTERACTIVE:-1}"
+export SIMPLE_SAMBA_BIND_HOST="${SIMPLE_SAMBA_BIND_HOST:-0.0.0.0}"
 exec bash "${CLONE_DIR}/install.sh"
