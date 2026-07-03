@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import re
 import time
@@ -61,15 +62,46 @@ def _raw_version_url(repo: str, branch: str) -> str:
     return f"https://raw.githubusercontent.com/{repo}/{branch}/app/__init__.py"
 
 
-def _fetch_remote_version(repo: str, branch: str) -> str:
-    url = _raw_version_url(repo, branch)
-    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT) as response:
-        body = response.read().decode("utf-8", errors="replace")
+def _parse_version_from_init(body: str) -> str:
     match = VERSION_RE.search(body)
     if not match:
         raise ValueError("Versionsnummer in GitHub-Quellcode nicht gefunden.")
     return match.group(1)
+
+
+def _github_api_version_url(repo: str, branch: str) -> str:
+    return f"https://api.github.com/repos/{repo}/contents/app/__init__.py?ref={branch}"
+
+
+def _fetch_remote_version(repo: str, branch: str) -> str:
+    """GitHub API zuerst – raw.githubusercontent.com cached oft veraltet."""
+    headers = {
+        "User-Agent": USER_AGENT,
+        "Accept": "application/vnd.github+json",
+    }
+    errors: list[str] = []
+
+    try:
+        request = urllib.request.Request(_github_api_version_url(repo, branch), headers=headers)
+        with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT) as response:
+            payload = json.loads(response.read().decode("utf-8", errors="replace"))
+        content = payload.get("content")
+        if not content:
+            raise ValueError("GitHub API: leere Antwort.")
+        body = base64.b64decode(content).decode("utf-8", errors="replace")
+        return _parse_version_from_init(body)
+    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, ValueError, json.JSONDecodeError) as exc:
+        errors.append(f"API: {exc}")
+
+    try:
+        request = urllib.request.Request(_raw_version_url(repo, branch), headers={"User-Agent": USER_AGENT})
+        with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT) as response:
+            body = response.read().decode("utf-8", errors="replace")
+        return _parse_version_from_init(body)
+    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, ValueError) as exc:
+        errors.append(f"raw: {exc}")
+
+    raise ValueError("; ".join(errors))
 
 
 def _load_cache() -> dict[str, Any] | None:
