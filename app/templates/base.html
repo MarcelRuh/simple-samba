@@ -62,7 +62,7 @@
         </a>
         <div class="topbar-title">{% block page_heading %}{{ app_name }}{% endblock %}</div>
       </div>
-      <div class="topbar-meta">{{ config.bind_host }}:{{ config.bind_port }}</div>
+      <div class="topbar-meta">{{ access_host }}:{{ config.bind_port }}</div>
     </header>
     <main class="container">
       {% if app_update and app_update.update_available and request.endpoint != 'system_updates' %}

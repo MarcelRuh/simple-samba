@@ -39,21 +39,38 @@ Gunicorn (User: samba-ui) – Flask-App
 
 ### One-Liner (empfohlen)
 
+Als **root** (curl und sudo werden bei Bedarf automatisch installiert):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/MarcelRuh/simple-samba/main/bootstrap.sh | bash
+```
+
+Ohne curl:
+
+```bash
+wget -qO- https://raw.githubusercontent.com/MarcelRuh/simple-samba/main/bootstrap.sh | bash
+```
+
+Als normaler Benutzer mit sudo:
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/MarcelRuh/simple-samba/main/bootstrap.sh | sudo bash
 ```
 
+Ohne sudo: zuerst `su -`, dann einen der Befehle oben als root.
+
 Das Script klont das Repository nach `/usr/local/src/simple-samba`, installiert Abhängigkeiten, legt die App unter `/opt/simple-samba-ui` ab, erstellt Admin-Zugangsdaten und startet systemd-Dienste.
+
+Die Web-UI ist danach unter der **normalen IP-Adresse** des Servers erreichbar (Standard: lauscht auf `0.0.0.0:8080`).
 
 Am Ende werden **URL, Benutzername und Passwort** ausgegeben.
 
-**Nicht-interaktiv** (eigene Werte statt Standard):
+**Optional** (eigene Werte):
 
 ```bash
-SIMPLE_SAMBA_BIND_HOST=192.168.1.10 \
 SIMPLE_SAMBA_BIND_PORT=8080 \
 SIMPLE_SAMBA_SHARES_BASE=/srv/shares \
-curl -fsSL https://raw.githubusercontent.com/MarcelRuh/simple-samba/main/bootstrap.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/MarcelRuh/simple-samba/main/bootstrap.sh | bash
 ```
 
 ### Manuell (git clone)
@@ -68,9 +85,9 @@ sudo bash install.sh
 
 | Adresse | Einsatz |
 |---------|---------|
-| `127.0.0.1` | Empfohlen – nur lokal / SSH-Tunnel |
-| LAN-IP | Nur im vertrauenswürdigen internen Netz |
-| `0.0.0.0` | Alle Interfaces – nur in isoliertem LAN |
+| `0.0.0.0` | **Standard (One-Liner)** – erreichbar unter der LAN-IP des Servers |
+| `127.0.0.1` | Nur lokal / SSH-Tunnel |
+| LAN-IP | Nur an dieser Adresse lauschen |
 
 Konfiguration: `/etc/simple-samba-ui/config.json`
 
