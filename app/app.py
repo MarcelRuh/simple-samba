@@ -44,6 +44,7 @@ from app.system import (
     format_uptime,
     get_overview_safe,
 )
+from app.app_updates import get_app_update_info
 from app.validators import (
     ValidationError,
     parse_valid_users_checked,
@@ -74,11 +75,18 @@ def create_app() -> Flask:
             cfg = load_config()
         except Exception:
             cfg = {}
+        app_update = None
+        if cfg:
+            try:
+                app_update = get_app_update_info(cfg, __version__)
+            except Exception:
+                app_update = None
         return {
             "app_name": "Simple Samba UI",
             "app_version": __version__,
             "config": cfg,
             "csrf_token": get_csrf_token,
+            "app_update": app_update,
         }
 
   # --- Auth ---
@@ -439,6 +447,12 @@ def create_app() -> Flask:
             if err and not check_error:
                 check_error = err
 
+        from app import __version__
+
+        cfg = load_config()
+        force_app_check = request.args.get("check_app") == "1"
+        app_update = get_app_update_info(cfg, __version__, force_refresh=force_app_check)
+
         return render_template(
             "system_updates.html",
             upgradable_packages=upgradable_packages,
@@ -448,6 +462,7 @@ def create_app() -> Flask:
             last_success=last_success,
             job_running=job_running,
             job=job,
+            app_update=app_update,
         )
 
     @app.route("/system/updates/job/start", methods=["POST"])

@@ -33,6 +33,9 @@
       <a href="{{ url_for('system_updates') }}" class="nav-item {% if request.endpoint == 'system_updates' %}active{% endif %}">
         <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
         Updates
+        {% if app_update and app_update.update_available %}
+        <span class="nav-badge" title="App-Update verfügbar">!</span>
+        {% endif %}
       </a>
       <a href="{{ url_for('change_password') }}" class="nav-item {% if request.endpoint == 'change_password' %}active{% endif %}">
         <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
@@ -40,7 +43,11 @@
       </a>
     </nav>
     <div class="sidebar-footer">
-      v{{ app_version }} · {{ session.get('username', 'admin') }}
+      v{{ app_version }}
+      {% if app_update and app_update.update_available %}
+      <a href="{{ url_for('system_updates') }}" class="sidebar-update-link">v{{ app_update.latest_version }} verfügbar</a>
+      {% endif %}
+      · {{ session.get('username', 'admin') }}
       <form method="post" action="{{ url_for('logout') }}" style="margin-top:0.5rem">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <button type="submit" class="btn btn-ghost btn-sm" style="width:100%;justify-content:flex-start;padding-left:0">Abmelden</button>
@@ -58,6 +65,16 @@
       <div class="topbar-meta">{{ config.bind_host }}:{{ config.bind_port }}</div>
     </header>
     <main class="container">
+      {% if app_update and app_update.update_available and request.endpoint != 'system_updates' %}
+      <div class="notice notice-warn app-update-banner" role="status">
+        <span class="toast-icon" aria-hidden="true">↑</span>
+        <div>
+          <strong>App-Update verfügbar:</strong>
+          v{{ app_version }} → v{{ app_update.latest_version }}.
+          <a href="{{ url_for('system_updates') }}">Details &amp; Anleitung</a>
+        </div>
+      </div>
+      {% endif %}
 {% else %}
 <main class="login-shell">
 {% endif %}
