@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import grp
 import json
+import configparser
 import os
 import pwd
 import re
@@ -25,6 +26,8 @@ from pathlib import Path
 
 SOCKET_PATH = Path("/run/simple-samba-ui/priv.sock")
 CONFIG_PATH = Path("/etc/simple-samba-ui/config.json")
+SMB_CONF = Path("/etc/samba/smb.conf")
+INSTALL_ROOT = Path("/opt/simple-samba-ui")
 ALLOWED_UID_NAME = "samba-ui"
 TARGET = Path("/etc/samba/smb-shares.conf")
 BACKUP_DIR = Path("/var/backups/simple-samba-ui")
@@ -103,6 +106,144 @@ def load_app_config() -> dict:
             return json.load(fh)
     except (OSError, json.JSONDecodeError):
         return {}
+
+
+def _ensure_app_import_path() -> None:
+    root = str(INSTALL_ROOT)
+    if root not in sys.path:
+        sys.path.insert(0, root)
+
+
+def _shares_file_path() -> Path:
+    cfg = load_app_config()
+    return Path(cfg.get("samba_shares_file") or "/etc/samba/smb-shares.conf")
+
+
+def _parsed_to_share(parsed) -> "Share":
+    from app.samba import Share
+
+    return Share(
+        name=parsed.name,
+        path=parsed.path,
+        comment=parsed.comment,
+        browseable=parsed.browseable,
+        read_only=parsed.read_only,
+        guest_ok=parsed.guest_ok,
+        valid_users=list(parsed.valid_users),
+        enabled=parsed.enabled,
+        create_mask=parsed.create_mask,
+        directory_mask=parsed.directory_mask,
+    )
+
+
+def _backup_smb_conf() -> Path | None:
+    if not SMB_CONF.is_file():
+        return None
+    BACKUP_DIR.mkdir(parents=True, exist_ok=True, mode=0o750)
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    backup = BACKUP_DIR / f"smb.conf.{ts}.bak"
+    shutil.copy2(SMB_CONF, backup)
+    backups = sorted(BACKUP_DIR.glob("smb.conf.*.bak"))
+    while len(backups) > MAX_BACKUPS:
+        backups.pop(0).unlink(missing_ok=True)
+    return backup
+
+
+def cmd_list_importable_shares() -> tuple[bool, str]:
+    _ensure_app_import_path()
+    from app.smbconf_parser import filter_importable, parse_smb_conf_shares
+    from app.samba import read_shares
+
+    if not SMB_CONF.is_file():
+        return True, json.dumps({"importable": [], "error": "smb.conf nicht gefunden."}, ensure_ascii=False)
+
+    try:
+        smbconf_shares = parse_smb_conf_shares(SMB_CONF.read_text(encoding="utf-8"))
+    except (OSError, configparser.Error) as exc:
+        return True, json.dumps({"importable": [], "error": str(exc)}, ensure_ascii=False)
+
+    shares_file = _shares_file_path()
+    existing = read_shares(str(shares_file)) if shares_file.is_file() else []
+    importable = filter_importable(smbconf_shares, {share.name for share in existing})
+    base = str(get_shares_base())
+
+    payload = {
+        "importable": [
+            {
+                **item.to_dict(),
+                "within_base": _path_within_base(item.path, base),
+            }
+            for item in importable
+        ],
+        "shares_base_path": base,
+    }
+    return True, json.dumps(payload, ensure_ascii=False)
+
+
+def _path_within_base(path_str: str, base: str) -> bool:
+    try:
+        Path(path_str).resolve().relative_to(Path(base).resolve())
+        return True
+    except ValueError:
+        return False
+
+
+def cmd_import_shares(body_text: str) -> tuple[bool, str]:
+    _ensure_app_import_path()
+    from app.smbconf_parser import comment_out_sections, parse_smb_conf_shares
+    from app.samba import Share, read_shares, shares_to_config_content
+
+    try:
+        data = json.loads(body_text or "{}")
+    except json.JSONDecodeError:
+        return False, "Ungültiges JSON."
+
+    names = {str(name).strip() for name in data.get("names", []) if str(name).strip()}
+    if not names:
+        return False, "Keine Freigaben ausgewählt."
+    comment_out = bool(data.get("comment_out_source", True))
+
+    if not SMB_CONF.is_file():
+        return False, "smb.conf nicht gefunden."
+
+    smbconf_shares = parse_smb_conf_shares(SMB_CONF.read_text(encoding="utf-8"))
+    selected = [share for share in smbconf_shares if share.name in names]
+    if len(selected) != len(names):
+        missing = names - {share.name for share in selected}
+        return False, f"Freigaben nicht in smb.conf gefunden: {', '.join(sorted(missing))}"
+
+    base = get_shares_base()
+    outside = [share.name for share in selected if not _path_within_base(share.path, str(base))]
+    if outside:
+        return False, (
+            f"Pfad liegt nicht unter {base}: {', '.join(outside)}. "
+            "Passe shares_base_path in der Konfiguration an oder verschiebe die Freigabe."
+        )
+
+    shares_file = _shares_file_path()
+    existing = read_shares(str(shares_file)) if shares_file.is_file() else []
+    merged: list[Share] = list(existing)
+    for parsed in selected:
+        if any(share.name.lower() == parsed.name.lower() for share in merged):
+            return False, f"Freigabe „{parsed.name}“ existiert bereits in smb-shares.conf."
+        merged.append(_parsed_to_share(parsed))
+
+    content = shares_to_config_content(merged)
+    smb_conf_backup = None
+    try:
+        if comment_out:
+            smb_conf_backup = _backup_smb_conf()
+            updated = comment_out_sections(
+                SMB_CONF.read_text(encoding="utf-8"),
+                {share.name for share in selected},
+            )
+            SMB_CONF.write_text(updated, encoding="utf-8")
+
+        return cmd_write_shares(content)
+    except OSError as exc:
+        if smb_conf_backup and smb_conf_backup.is_file():
+            shutil.copy2(smb_conf_backup, SMB_CONF)
+        return False, f"Import fehlgeschlagen: {exc}"
 
 
 def get_shares_base() -> Path:
@@ -862,6 +1003,8 @@ def handle_request(line: str, body: bytes) -> tuple[bool, str]:
         "apt-job-status": lambda: cmd_apt_job_status(),
         "app-update-start": lambda: cmd_app_update_start(),
         "app-update-status": lambda: cmd_app_update_status(),
+        "list-importable-shares": lambda: cmd_list_importable_shares(),
+        "import-shares": lambda: cmd_import_shares(body_text),
         "system-overview": lambda: cmd_system_overview(),
     }
 

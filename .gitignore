@@ -4,6 +4,7 @@ __pycache__/
 *.egg-info/
 .venv/
 venv/
+.test-venv/
 
 # Secrets & lokale Runtime (werden bei Installation auf dem Zielsystem erzeugt)
 config.json

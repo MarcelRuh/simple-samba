@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import configparser
+import json
 import re
 import socket
 import subprocess
@@ -278,3 +279,17 @@ def delete_samba_user(username: str) -> None:
     ok, detail = _priv_request("pdbedit-delete", arg=username)
     if not ok:
         raise SambaError(f"Benutzer konnte nicht gelöscht werden: {detail}")
+
+
+def list_importable_shares() -> dict:
+    ok, output = _priv_request("list-importable-shares")
+    if not ok:
+        raise SambaError(output or "Import-Liste nicht verfügbar.")
+    return json.loads(output)
+
+
+def import_shares(names: list[str], *, comment_out_source: bool = True) -> None:
+    payload = json.dumps({"names": names, "comment_out_source": comment_out_source})
+    ok, detail = _priv_request("import-shares", body=payload)
+    if not ok:
+        raise SambaError(detail or "Import fehlgeschlagen.")
