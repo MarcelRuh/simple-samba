@@ -1,14 +1,11 @@
 #!/bin/bash
 # Simple Samba UI – One-Liner-Installation
 #
-#   curl -fsSL https://raw.githubusercontent.com/MarcelRuh/simple-samba/main/bootstrap.sh | bash
-#
-# Alternative ohne curl:
 #   wget -qO- https://raw.githubusercontent.com/MarcelRuh/simple-samba/main/bootstrap.sh | bash
 #
 # Optional (nicht-interaktiv):
 #   SIMPLE_SAMBA_BIND_PORT=8080 \
-#     curl -fsSL https://raw.githubusercontent.com/MarcelRuh/simple-samba/main/bootstrap.sh | bash
+#     wget -qO- https://raw.githubusercontent.com/MarcelRuh/simple-samba/main/bootstrap.sh | bash
 set -euo pipefail
 
 REPO_URL="${SIMPLE_SAMBA_REPO:-https://github.com/MarcelRuh/simple-samba.git}"
@@ -38,19 +35,17 @@ if [[ "${EUID}" -ne 0 ]]; then
             SIMPLE_SAMBA_NONINTERACTIVE="${SIMPLE_SAMBA_NONINTERACTIVE:-}" \
             bash -s "$@" <<'BOOTSTRAP_INLINE'
 set -euo pipefail
-if command -v curl >/dev/null 2>&1; then
-  exec bash < <(curl -fsSL 'https://raw.githubusercontent.com/MarcelRuh/simple-samba/main/bootstrap.sh')
-elif command -v wget >/dev/null 2>&1; then
+if command -v wget >/dev/null 2>&1; then
   exec bash < <(wget -qO- 'https://raw.githubusercontent.com/MarcelRuh/simple-samba/main/bootstrap.sh')
 else
-  echo "curl oder wget erforderlich." >&2
+  echo "wget erforderlich." >&2
   exit 1
 fi
 BOOTSTRAP_INLINE
     fi
     error "Root erforderlich. Bitte als root ausführen:"
     error "  su -"
-    error "  curl -fsSL ${RAW_BOOTSTRAP} | bash"
+    error "  wget -qO- ${RAW_BOOTSTRAP} | bash"
     exit 1
 fi
 
@@ -68,10 +63,10 @@ ensure_bootstrap_tools() {
         error "apt-get nicht gefunden – nur Debian/Ubuntu werden unterstützt."
         exit 1
     fi
-    info "Prüfe Basiswerkzeuge (curl, git, sudo) …"
+    info "Prüfe Basiswerkzeuge (wget, git, sudo) …"
     apt-get update -qq
     ensure_apt_pkg ca-certificates
-    ensure_apt_pkg curl
+    ensure_apt_pkg wget
     ensure_apt_pkg git
     ensure_apt_pkg sudo
 }

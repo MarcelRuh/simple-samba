@@ -3,6 +3,7 @@ import pytest
 from app.smbconf_parser import (
     comment_out_sections,
     filter_importable,
+    infer_shares_base_path,
     parse_smb_conf_shares,
 )
 from app.validators import ValidationError, validate_share_name, validate_samba_username
@@ -39,6 +40,13 @@ def test_parse_smb_conf_shares():
     assert shares[0].name == "daten"
     assert shares[0].path == "/srv/shares/daten"
     assert shares[0].valid_users == ["alice", "bob"]
+
+
+def test_infer_shares_base_path():
+    assert infer_shares_base_path([]) == "/srv/shares"
+    assert infer_shares_base_path(["/srv/raid5/plex", "/srv/raid5/data"]) == "/srv/raid5"
+    assert infer_shares_base_path(["/mnt/nas/files"]) == "/mnt/nas/files"
+    assert infer_shares_base_path(["/srv/a", "/mnt/b"]) == "/"
 
 
 def test_filter_importable():

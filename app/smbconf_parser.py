@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import configparser
+import os
 import re
 from dataclasses import asdict, dataclass, field
+from pathlib import Path
 
 SKIP_SECTIONS = frozenset({
     "global",
@@ -80,6 +82,24 @@ def parse_smb_conf_shares(content: str) -> list[ParsedShare]:
             )
         )
     return shares
+
+
+def infer_shares_base_path(paths: list[str], default: str = "/srv/shares") -> str:
+    """Ermittelt ein gemeinsames Basisverzeichnis für vorhandene Freigabe-Pfade."""
+    resolved: list[str] = []
+    for raw in paths:
+        path = (raw or "").strip()
+        if not path.startswith("/"):
+            continue
+        if ".." in path.split("/"):
+            continue
+        resolved.append(str(Path(path).resolve()))
+    if not resolved:
+        return default
+    common = os.path.commonpath(resolved)
+    if common == "/":
+        return "/"
+    return common
 
 
 def filter_importable(

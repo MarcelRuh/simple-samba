@@ -37,6 +37,14 @@ echo "  Installation für Debian 13"
 echo "========================================"
 echo ""
 
+if [[ "${UPGRADE}" != true ]] && [[ -z "${SIMPLE_SAMBA_SHARES_BASE:-}" ]]; then
+    detected_base="$(detect_shares_base_from_smb_conf "${SCRIPT_DIR}" 2>/dev/null || true)"
+    if [[ -n "${detected_base}" ]]; then
+        SHARES_BASE="${detected_base}"
+        info "Freigabe-Pfade in smb.conf erkannt – vorgeschlagene Basis: ${SHARES_BASE}"
+    fi
+fi
+
 if _is_interactive; then
     local_default_host="$(detect_primary_ipv4)"
     read -rp "Basisverzeichnis für Freigaben [${SHARES_BASE}]: " input_base
@@ -68,6 +76,8 @@ else
     ADMIN_PASSWORD="$(openssl rand -base64 18 | tr -d '/+=' | head -c 16)"
     write_initial_config "${ADMIN_USER}" "${ADMIN_PASSWORD}" "${SHARES_BASE}" "${BIND_HOST}" "${BIND_PORT}"
 fi
+
+auto_import_smb_shares
 
 install_systemd_units "${SCRIPT_DIR}"
 set_permissions

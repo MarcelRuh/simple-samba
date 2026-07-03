@@ -31,8 +31,8 @@
     <span class="badge warn">{{ importable|length }}</span>
   </div>
   <p class="hint" style="margin-bottom:1rem">
-    Basisverzeichnis für Pfadprüfung: <code>{{ shares_base }}</code>.
-    Freigaben außerhalb dieses Pfads können nicht importiert werden.
+    Basisverzeichnis: <code>{{ shares_base }}</code>.
+    Liegen Freigaben außerhalb (z.&nbsp;B. unter <code>/mnt</code>), wird die Basis beim Import automatisch angepasst.
   </p>
 
   <form method="post" action="{{ url_for('share_import') }}">
@@ -55,7 +55,7 @@
                      name="share_names"
                      value="{{ share.name }}"
                      id="import-{{ loop.index }}"
-                     {% if not share.within_base %}disabled{% else %}checked{% endif %}>
+                     checked>
             </td>
             <td><label for="import-{{ loop.index }}"><code>{{ share.name }}</code></label></td>
             <td><code>{{ share.path }}</code></td>
@@ -63,7 +63,7 @@
               {% if share.within_base %}
                 <span class="badge ok">Bereit</span>
               {% else %}
-                <span class="badge off">Außerhalb Basis</span>
+                <span class="badge warn">Basis wird angepasst</span>
               {% endif %}
             </td>
           </tr>
