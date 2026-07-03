@@ -865,13 +865,50 @@ def _chown_app_update_job_files() -> None:
         os.chmod(APP_UPDATE_JOB_LOG_FILE, 0o660)
 
 
+def _app_update_worker_alive() -> bool:
+    result = run_cmd(["pgrep", "-f", "scripts/run-app-update.py"], timeout=5)
+    return result.returncode == 0
+
+
+def _write_app_update_job_status(data: dict) -> None:
+    APP_UPDATE_JOB_DIR.mkdir(parents=True, exist_ok=True)
+    APP_UPDATE_JOB_STATUS_FILE.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    _chown_app_update_job_files()
+
+
+def _cleanup_stale_app_update_job(data: dict) -> dict:
+    if data.get("status") != "running":
+        return data
+    if _app_update_worker_alive():
+        return data
+    stale = {
+        **data,
+        "status": "failed",
+        "phase": "done",
+        "phase_label": "Abgebrochen",
+        "success": False,
+        "finished_at": _iso_now(),
+    }
+    _write_app_update_job_status(stale)
+    _append_app_update_job_log("Update-Prozess nicht mehr aktiv – Job als abgebrochen markiert.")
+    return stale
+
+
+def _append_app_update_job_log(text: str) -> None:
+    APP_UPDATE_JOB_DIR.mkdir(parents=True, exist_ok=True)
+    with APP_UPDATE_JOB_LOG_FILE.open("a", encoding="utf-8") as fh:
+        fh.write(text.rstrip("\n") + "\n")
+    _chown_app_update_job_files()
+
+
 def _read_app_update_job_status() -> dict:
     if not APP_UPDATE_JOB_STATUS_FILE.is_file():
         return {"status": "idle"}
     try:
-        return json.loads(APP_UPDATE_JOB_STATUS_FILE.read_text(encoding="utf-8"))
+        data = json.loads(APP_UPDATE_JOB_STATUS_FILE.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return {"status": "idle"}
+    return _cleanup_stale_app_update_job(data)
 
 
 def _read_app_update_job_log() -> str:
