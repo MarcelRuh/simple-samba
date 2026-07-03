@@ -2,7 +2,7 @@
 # Gemeinsame Install-/Update-Logik für Simple Samba UI
 # Quellverzeichnis (Clone) → Deployment nach /opt/simple-samba-ui
 
-APP_VERSION="1.6.1"
+APP_VERSION="1.6.2"
 INSTALL_DIR="/opt/simple-samba-ui"
 CONFIG_DIR="/etc/simple-samba-ui"
 CONFIG_FILE="${CONFIG_DIR}/config.json"
@@ -126,6 +126,9 @@ set_permissions() {
     if [[ -f "${CONFIG_FILE}" ]]; then
         chmod 600 "${CONFIG_FILE}"
     fi
+    mkdir -p /var/lib/samba-ui/apt-job /var/lib/samba-ui/app-update-job
+    chown root:samba-ui /var/lib/samba-ui/apt-job /var/lib/samba-ui/app-update-job
+    chmod 750 /var/lib/samba-ui/apt-job /var/lib/samba-ui/app-update-job
     mkdir -p /run/simple-samba-ui
     chown root:samba-ui /run/simple-samba-ui
     chmod 750 /run/simple-samba-ui

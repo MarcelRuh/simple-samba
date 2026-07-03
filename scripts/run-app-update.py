@@ -12,7 +12,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-JOB_DIR = Path("/run/simple-samba-ui/app-update-job")
+JOB_DIR = Path("/var/lib/samba-ui/app-update-job")
 STATUS_FILE = JOB_DIR / "status.json"
 LOG_FILE = JOB_DIR / "output.log"
 DEFAULT_CLONE_DIR = Path("/usr/local/src/simple-samba")
@@ -100,6 +100,7 @@ def main() -> int:
     repo_url = f"https://github.com/{repo}.git"
 
     started = _iso_now()
+    JOB_DIR.mkdir(parents=True, exist_ok=True)
     LOG_FILE.write_text("", encoding="utf-8")
     _write_status(status="running", phase="start", started_at=started)
     _log(f"Simple Samba UI – Update von GitHub ({repo}@{branch})")

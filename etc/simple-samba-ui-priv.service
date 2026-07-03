@@ -13,6 +13,7 @@ Environment=SAMBA_UI_SHARES_BASE=@SHARES_BASE@
 ExecStart=/opt/simple-samba-ui/venv/bin/python3 /opt/simple-samba-ui/scripts/simple-samba-ui-priv-daemon.py
 Restart=on-failure
 RestartSec=3
+KillMode=process
 RuntimeDirectory=simple-samba-ui
 RuntimeDirectoryMode=0750
 
