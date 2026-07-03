@@ -11,7 +11,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-CACHE_PATH = Path("/var/lib/samba-ui/app-update-check.json")
+CACHE_PATH = Path("/etc/simple-samba-ui/app-update-check.json")
+LEGACY_CACHE_PATH = Path("/var/lib/samba-ui/app-update-check.json")
 VERSION_RE = re.compile(r"""__version__\s*=\s*['"]([^'"]+)['"]""")
 DEFAULT_REPO = "MarcelRuh/simple-samba"
 DEFAULT_BRANCH = "main"
@@ -72,23 +73,29 @@ def _fetch_remote_version(repo: str, branch: str) -> str:
 
 
 def _load_cache() -> dict[str, Any] | None:
-    if not CACHE_PATH.is_file():
-        return None
+    for path in (CACHE_PATH, LEGACY_CACHE_PATH):
+        if not path.is_file():
+            continue
+        try:
+            with path.open(encoding="utf-8") as fh:
+                data = json.load(fh)
+            return data if isinstance(data, dict) else None
+        except (OSError, json.JSONDecodeError):
+            continue
+    return None
+
+
+def _save_cache(data: dict[str, Any]) -> bool:
     try:
-        with CACHE_PATH.open(encoding="utf-8") as fh:
-            data = json.load(fh)
-        return data if isinstance(data, dict) else None
-    except (OSError, json.JSONDecodeError):
-        return None
-
-
-def _save_cache(data: dict[str, Any]) -> None:
-    CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    tmp = CACHE_PATH.with_suffix(".tmp")
-    with tmp.open("w", encoding="utf-8") as fh:
-        json.dump(data, fh, indent=2, ensure_ascii=False)
-        fh.write("\n")
-    tmp.replace(CACHE_PATH)
+        CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        tmp = CACHE_PATH.with_suffix(".json.tmp")
+        with tmp.open("w", encoding="utf-8") as fh:
+            json.dump(data, fh, indent=2, ensure_ascii=False)
+            fh.write("\n")
+        tmp.replace(CACHE_PATH)
+        return True
+    except OSError:
+        return False
 
 
 def _cache_valid(cache: dict[str, Any], repo: str, branch: str, max_age_seconds: float) -> bool:
@@ -129,7 +136,8 @@ def get_app_update_info(
         )
 
     max_age = interval_hours * 3600
-    cache = None if force_refresh else _load_cache()
+    stale_cache = _load_cache()
+    cache = None if force_refresh else stale_cache
     from_cache = False
     latest_version: str | None = None
     check_error: str | None = None
@@ -146,7 +154,7 @@ def get_app_update_info(
             latest_version = _fetch_remote_version(repo, branch)
             check_error = None
         except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, ValueError) as exc:
-            latest_version = cache.get("latest_version") if cache else None
+            latest_version = stale_cache.get("latest_version") if stale_cache else None
             check_error = str(exc)
         _save_cache(
             {
