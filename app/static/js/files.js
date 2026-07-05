@@ -7,7 +7,6 @@
   var breadcrumb = document.getElementById('files-breadcrumb');
   var tbody = document.getElementById('files-tbody');
   var loadingEl = document.getElementById('files-loading');
-  var errorEl = document.getElementById('files-error');
   var emptyEl = document.getElementById('files-empty');
   var metaEl = document.getElementById('files-meta');
   var uploadInput = document.getElementById('files-upload-input');
@@ -57,9 +56,21 @@
     mkdirBtn.disabled = disabled;
   }
 
-  function showError(msg) {
-    errorEl.hidden = !msg;
-    errorEl.textContent = msg || '';
+  function showError(_msg) {
+    /* Fehler nur als Toast – kein roter Balken in der UI */
+  }
+
+  function downloadUrl(relPath) {
+    return '/api/files/download?share=' + encodeURIComponent(currentShare) +
+      '&path=' + encodeURIComponent(relPath);
+  }
+
+  function addDownloadButton(actionCell, relPath, label) {
+    var dl = document.createElement('a');
+    dl.className = 'btn btn-secondary btn-sm';
+    dl.textContent = label || 'Download';
+    dl.href = downloadUrl(relPath);
+    actionCell.appendChild(dl);
   }
 
   function renderBreadcrumb(data) {
@@ -134,16 +145,13 @@
         });
         nameCell.appendChild(dirBtn);
         sizeCell.textContent = '—';
+        var dirRel = data.rel_path ? data.rel_path + '/' + entry.name : entry.name;
+        addDownloadButton(actionCell, dirRel, 'Download (.zip)');
       } else {
         nameCell.innerHTML = '<code>' + entry.name + '</code>';
         sizeCell.textContent = formatSize(entry.size || 0);
-
-        var dl = document.createElement('a');
-        dl.className = 'btn btn-secondary btn-sm';
-        dl.textContent = 'Download';
-        dl.href = '/api/files/download?share=' + encodeURIComponent(currentShare) +
-          '&path=' + encodeURIComponent((data.rel_path ? data.rel_path + '/' : '') + entry.name);
-        actionCell.appendChild(dl);
+        var fileRel = data.rel_path ? data.rel_path + '/' + entry.name : entry.name;
+        addDownloadButton(actionCell, fileRel);
       }
 
       timeCell.textContent = formatTime(entry.mtime);

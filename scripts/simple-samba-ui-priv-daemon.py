@@ -21,6 +21,7 @@ import sys
 import tempfile
 import threading
 import time
+import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -581,29 +582,38 @@ def cmd_files_stage_download(path_str: str) -> tuple[bool, str]:
     except ValueError as exc:
         return False, str(exc)
 
-    if not source.is_file():
-        return False, "Pfad ist keine Datei."
-
     _ensure_file_staging_dir()
     token = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S%f")
-    staging = FILE_STAGING_DIR / f"dl-{token}-{source.name}"
     try:
-        shutil.copy2(source, staging)
+        if source.is_file():
+            download_name = source.name
+            staging = FILE_STAGING_DIR / f"dl-{token}-{download_name}"
+            shutil.copy2(source, staging)
+        elif source.is_dir():
+            download_name = f"{source.name}.zip"
+            staging = FILE_STAGING_DIR / f"dl-{token}-{download_name}"
+            with zipfile.ZipFile(staging, "w", zipfile.ZIP_DEFLATED) as archive:
+                for root, _dirs, files in os.walk(source):
+                    for filename in files:
+                        if filename.startswith("."):
+                            continue
+                        full_path = Path(root) / filename
+                        archive.write(full_path, full_path.relative_to(source).as_posix())
+        else:
+            return False, "Pfad nicht gefunden."
         os.chmod(staging, 0o640)
         uid = pwd.getpwnam("samba-ui").pw_uid
-        gid = pwd.getpwnam("samba-ui").gr_gid
+        gid = pwd.getpwnam("samba-ui").pw_gid
         os.chown(staging, uid, gid)
     except OSError as exc:
-        staging.unlink(missing_ok=True)
         return False, f"Download konnte nicht vorbereitet werden: {exc}"
 
     payload = {
         "staging": str(staging),
-        "name": source.name,
-        "size": source.stat().st_size,
+        "name": download_name,
+        "size": staging.stat().st_size,
     }
     return True, json.dumps(payload, ensure_ascii=False)
-
 
 def cmd_files_commit_upload(body_text: str) -> tuple[bool, str]:
     try:
