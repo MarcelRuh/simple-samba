@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from flask import Flask, flash, jsonify, redirect, render_template, request, url_for
+import os
+import secrets
+
+from flask import Flask, after_this_request, flash, jsonify, redirect, render_template, request, send_file, url_for
 
 from app.auth import (
     attempt_login,
@@ -16,6 +19,14 @@ from app.auth import (
 )
 from app.config import load_config, save_config
 from app.csrf import get_csrf_token, validate_csrf_token
+from app.files import (
+    FileBrowserError,
+    commit_upload,
+    create_directory,
+    delete_path,
+    list_directory,
+    stage_download,
+)
 from app.rate_limit import clear_login_attempts, is_login_locked, record_failed_login
 from app.samba import (
     SambaError,
@@ -60,9 +71,12 @@ from app.validators import (
     validate_share_path,
 )
 
+FILE_STAGING_DIR = "/var/lib/samba-ui/file-staging"
+
 
 def create_app() -> Flask:
     app = Flask(__name__)
+    app.config["MAX_CONTENT_LENGTH"] = 512 * 1024 * 1024
     configure_session(app)
 
     @app.before_request
@@ -397,6 +411,109 @@ def create_app() -> Flask:
         except (ValidationError, SambaError) as exc:
             flash(str(exc), "error")
         return redirect(url_for("users_list"))
+
+  # --- Datei-Explorer ---
+
+    @app.route("/dateien")
+    @login_required
+    def files_browser():
+        config = load_config()
+        try:
+            shares = [s for s in read_shares(config["samba_shares_file"]) if s.enabled]
+        except SambaError as exc:
+            flash(str(exc), "error")
+            shares = []
+        return render_template("files.html", shares=shares)
+
+    @app.route("/api/files/browse")
+    @login_required
+    def files_api_browse():
+        share_name = request.args.get("share", "")
+        rel_path = request.args.get("path", "")
+        try:
+            data = list_directory(share_name, rel_path)
+            return jsonify(data)
+        except (ValidationError, FileBrowserError) as exc:
+            return jsonify({"error": str(exc)}), 400
+
+    @app.route("/api/files/download")
+    @login_required
+    def files_api_download():
+        share_name = request.args.get("share", "")
+        rel_path = request.args.get("path", "")
+        try:
+            info = stage_download(share_name, rel_path)
+            staging = info["staging"]
+
+            @after_this_request
+            def _cleanup(response):
+                try:
+                    os.unlink(staging)
+                except OSError:
+                    pass
+                return response
+
+            return send_file(
+                staging,
+                as_attachment=True,
+                download_name=info.get("name") or "download",
+                mimetype="application/octet-stream",
+            )
+        except (ValidationError, FileBrowserError) as exc:
+            return jsonify({"error": str(exc)}), 400
+
+    @app.route("/api/files/upload", methods=["POST"])
+    @login_required
+    def files_api_upload():
+        share_name = request.form.get("share", "")
+        rel_path = request.form.get("path", "")
+        uploaded = request.files.get("file")
+        if not uploaded or not uploaded.filename:
+            return jsonify({"error": "Keine Datei ausgewählt."}), 400
+
+        filename = os.path.basename(uploaded.filename.replace("\\", "/"))
+        if not filename or filename in (".", ".."):
+            return jsonify({"error": "Ungültiger Dateiname."}), 400
+
+        os.makedirs(FILE_STAGING_DIR, exist_ok=True)
+        token = secrets.token_hex(16)
+        staging = os.path.join(FILE_STAGING_DIR, f"upload-{token}-{filename}")
+        try:
+            uploaded.save(staging)
+            os.chmod(staging, 0o640)
+            commit_upload(share_name, rel_path, staging)
+            return jsonify({"ok": True, "name": filename})
+        except (ValidationError, FileBrowserError) as exc:
+            return jsonify({"error": str(exc)}), 400
+        finally:
+            try:
+                os.unlink(staging)
+            except OSError:
+                pass
+
+    @app.route("/api/files/mkdir", methods=["POST"])
+    @login_required
+    def files_api_mkdir():
+        data = request.get_json(silent=True) or {}
+        try:
+            create_directory(
+                str(data.get("share", "")),
+                str(data.get("path", "")),
+                str(data.get("name", "")),
+            )
+            return jsonify({"ok": True})
+        except (ValidationError, FileBrowserError) as exc:
+            return jsonify({"error": str(exc)}), 400
+
+    @app.route("/api/files/delete", methods=["POST"])
+    @login_required
+    def files_api_delete():
+        data = request.get_json(silent=True) or {}
+        try:
+            delete_path(str(data.get("share", "")), str(data.get("path", "")))
+            return jsonify({"ok": True})
+        except (ValidationError, FileBrowserError) as exc:
+            return jsonify({"error": str(exc)}), 400
 
   # --- Service / Diagnostics ---
 

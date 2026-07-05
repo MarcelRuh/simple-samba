@@ -33,6 +33,8 @@ TARGET = Path("/etc/samba/smb-shares.conf")
 BACKUP_DIR = Path("/var/backups/simple-samba-ui")
 MAX_BACKUPS = 20
 MAX_BODY_BYTES = 512_000
+FILE_STAGING_DIR = Path("/var/lib/samba-ui/file-staging")
+MAX_UPLOAD_BYTES = 512 * 1024 * 1024
 USER_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$", re.IGNORECASE)
 
 PROTECTED_UNIX_USERS = frozenset({
@@ -456,6 +458,192 @@ def cmd_delete_share_path(path_str: str) -> tuple[bool, str]:
         return False, f"Verzeichnis konnte nicht gelöscht werden: {exc}"
 
     return True, f"Verzeichnis gelöscht: {resolved}"
+
+
+def _ensure_file_staging_dir() -> None:
+    FILE_STAGING_DIR.mkdir(parents=True, exist_ok=True, mode=0o770)
+    try:
+        gid = grp.getgrnam("samba-ui").gr_gid
+        os.chown(FILE_STAGING_DIR, 0, gid)
+    except KeyError:
+        pass
+
+
+def _get_enabled_share_paths() -> list[Path]:
+    _ensure_app_import_path()
+    from app.samba import read_shares
+
+    cfg = load_app_config()
+    shares_file = cfg.get("samba_shares_file") or "/etc/samba/smb-shares.conf"
+    try:
+        shares = read_shares(str(shares_file))
+    except Exception:
+        return []
+    roots: list[Path] = []
+    for share in shares:
+        if not share.enabled or not share.path:
+            continue
+        roots.append(Path(share.path).resolve())
+    return roots
+
+
+def validate_browser_path(path_str: str) -> Path:
+    """Pfad muss unter Basisverzeichnis und unter einer aktiven Freigabe liegen."""
+    resolved = validate_share_path_str(path_str)
+    roots = _get_enabled_share_paths()
+    if not roots:
+        raise ValueError("Keine aktiven Freigaben konfiguriert.")
+    for root in roots:
+        try:
+            resolved.relative_to(root)
+            return resolved
+        except ValueError:
+            continue
+    raise ValueError("Pfad liegt nicht unter einer Freigabe.")
+
+
+def _is_share_root(path: Path) -> bool:
+    return path.resolve() in _get_enabled_share_paths()
+
+
+def cmd_files_list(path_str: str) -> tuple[bool, str]:
+    try:
+        directory = validate_browser_path(path_str)
+    except ValueError as exc:
+        return False, str(exc)
+
+    if not directory.is_dir():
+        return False, "Pfad ist kein Verzeichnis."
+
+    entries: list[dict] = []
+    try:
+        with os.scandir(directory) as scan:
+            for entry in sorted(scan, key=lambda item: (not item.is_dir(), item.name.lower())):
+                if entry.name.startswith("."):
+                    continue
+                info = entry.stat(follow_symlinks=False)
+                entries.append({
+                    "name": entry.name,
+                    "type": "dir" if entry.is_dir(follow_symlinks=False) else "file",
+                    "size": info.st_size,
+                    "mtime": int(info.st_mtime),
+                })
+    except OSError as exc:
+        return False, f"Verzeichnis nicht lesbar: {exc}"
+
+    payload = {
+        "path": str(directory),
+        "entries": entries,
+    }
+    return True, json.dumps(payload, ensure_ascii=False)
+
+
+def cmd_files_mkdir(path_str: str) -> tuple[bool, str]:
+    try:
+        target = validate_browser_path(path_str)
+    except ValueError as exc:
+        return False, str(exc)
+
+    try:
+        target.mkdir(parents=False, exist_ok=False)
+        os.chmod(target, 0o2770)
+    except FileExistsError:
+        return False, "Ordner existiert bereits."
+    except OSError as exc:
+        return False, f"Ordner konnte nicht erstellt werden: {exc}"
+    return True, f"Ordner erstellt: {target}"
+
+
+def cmd_files_delete(path_str: str) -> tuple[bool, str]:
+    try:
+        target = validate_browser_path(path_str)
+    except ValueError as exc:
+        return False, str(exc)
+
+    if _is_share_root(target):
+        return False, "Freigabe-Wurzelverzeichnis kann nicht gelöscht werden."
+
+    try:
+        if target.is_dir():
+            shutil.rmtree(target)
+        elif target.is_file():
+            target.unlink()
+        else:
+            return False, "Pfad nicht gefunden."
+    except OSError as exc:
+        return False, f"Löschen fehlgeschlagen: {exc}"
+    return True, "Gelöscht."
+
+
+def cmd_files_stage_download(path_str: str) -> tuple[bool, str]:
+    try:
+        source = validate_browser_path(path_str)
+    except ValueError as exc:
+        return False, str(exc)
+
+    if not source.is_file():
+        return False, "Pfad ist keine Datei."
+
+    _ensure_file_staging_dir()
+    token = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S%f")
+    staging = FILE_STAGING_DIR / f"dl-{token}-{source.name}"
+    try:
+        shutil.copy2(source, staging)
+        os.chmod(staging, 0o640)
+        uid = pwd.getpwnam("samba-ui").pw_uid
+        gid = pwd.getpwnam("samba-ui").gr_gid
+        os.chown(staging, uid, gid)
+    except OSError as exc:
+        staging.unlink(missing_ok=True)
+        return False, f"Download konnte nicht vorbereitet werden: {exc}"
+
+    payload = {
+        "staging": str(staging),
+        "name": source.name,
+        "size": source.stat().st_size,
+    }
+    return True, json.dumps(payload, ensure_ascii=False)
+
+
+def cmd_files_commit_upload(body_text: str) -> tuple[bool, str]:
+    try:
+        data = json.loads(body_text or "{}")
+    except json.JSONDecodeError:
+        return False, "Ungültiges JSON."
+
+    parent_str = str(data.get("parent", "")).strip()
+    staging_str = str(data.get("staging", "")).strip()
+    if not parent_str or not staging_str:
+        return False, "parent und staging erforderlich."
+
+    try:
+        parent = validate_browser_path(parent_str)
+    except ValueError as exc:
+        return False, str(exc)
+
+    staging = Path(staging_str).resolve()
+    staging_root = FILE_STAGING_DIR.resolve()
+    try:
+        staging.relative_to(staging_root)
+    except ValueError:
+        return False, "Ungültiger Staging-Pfad."
+
+    if not staging.is_file():
+        return False, "Upload-Datei nicht gefunden."
+
+    if not parent.is_dir():
+        return False, "Zielverzeichnis existiert nicht."
+
+    dest = parent / staging.name
+    if dest.exists():
+        return False, f"Datei existiert bereits: {dest.name}"
+
+    try:
+        shutil.move(str(staging), dest)
+        os.chmod(dest, 0o0660)
+    except OSError as exc:
+        return False, f"Upload fehlgeschlagen: {exc}"
+    return True, f"Datei hochgeladen: {dest.name}"
 
 
 def create_backup() -> Path | None:
@@ -1071,6 +1259,11 @@ def handle_request(line: str, body: bytes) -> tuple[bool, str]:
         "list-importable-shares": lambda: cmd_list_importable_shares(),
         "import-shares": lambda: cmd_import_shares(body_text),
         "system-overview": lambda: cmd_system_overview(),
+        "files-list": lambda: cmd_files_list(arg),
+        "files-mkdir": lambda: cmd_files_mkdir(arg),
+        "files-delete": lambda: cmd_files_delete(arg),
+        "files-stage-download": lambda: cmd_files_stage_download(arg),
+        "files-commit-upload": lambda: cmd_files_commit_upload(body_text),
     }
 
     handler = handlers.get(command)

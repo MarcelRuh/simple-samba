@@ -1152,3 +1152,100 @@ pre.output {
 
   .stats-grid { grid-template-columns: 1fr; }
 }
+
+/* Datei-Explorer */
+.files-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  margin-bottom: 1.25rem;
+}
+
+.files-toolbar-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.files-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.files-select {
+  min-width: min(100%, 320px);
+  padding: 0.45rem 0.65rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+}
+
+.files-breadcrumb {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.15rem;
+  font-size: 0.9rem;
+}
+
+.files-crumb,
+.files-crumb-current {
+  background: none;
+  border: none;
+  padding: 0.15rem 0.25rem;
+  color: var(--text-secondary);
+  font: inherit;
+}
+
+.files-crumb {
+  cursor: pointer;
+  color: var(--accent);
+}
+
+.files-crumb:hover {
+  text-decoration: underline;
+}
+
+.files-crumb-sep {
+  color: var(--text-secondary);
+  opacity: 0.7;
+}
+
+.files-crumb-current {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.files-toolbar-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.files-upload-btn.disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.files-entry-dir {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--accent);
+  cursor: pointer;
+  text-align: left;
+}
+
+.files-entry-dir:hover {
+  text-decoration: underline;
+}
+
+.files-up-btn {
+  font-weight: 600;
+}

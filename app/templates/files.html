@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}Dateien – {{ app_name }}{% endblock %}
+{% block page_heading %}Datei-Explorer{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Datei-Explorer</h1>
+  <p class="lead">Dateien in Freigaben durchsuchen, hoch- und herunterladen.</p>
+</div>
+
+{% if not shares %}
+<div class="card">
+  <p class="hint" style="margin:0">Keine aktiven Freigaben vorhanden. Zuerst eine <a href="{{ url_for('index') }}">Freigabe anlegen</a>.</p>
+</div>
+{% else %}
+<div class="card files-toolbar">
+  <div class="files-toolbar-row">
+    <label class="files-label" for="files-share-select">Freigabe</label>
+    <select id="files-share-select" class="files-select">
+      {% for share in shares %}
+      <option value="{{ share.name }}"
+              data-path="{{ share.path }}"
+              data-readonly="{{ '1' if share.read_only else '0' }}">
+        {{ share.name }} ({{ share.path }})
+      </option>
+      {% endfor %}
+    </select>
+  </div>
+  <nav id="files-breadcrumb" class="files-breadcrumb" aria-label="Pfad"></nav>
+  <div class="files-toolbar-actions">
+    <label class="btn btn-primary btn-sm files-upload-btn" id="files-upload-label">
+      Hochladen
+      <input type="file" id="files-upload-input" multiple hidden>
+    </label>
+    <button type="button" class="btn btn-secondary btn-sm" id="files-mkdir-btn">Neuer Ordner</button>
+    <button type="button" class="btn btn-secondary btn-sm" id="files-refresh-btn">Aktualisieren</button>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <span class="card-title">Inhalt</span>
+    <span class="hint" id="files-meta"></span>
+  </div>
+  <div id="files-loading" class="hint" hidden>Lade …</div>
+  <div id="files-error" class="notice notice-error" hidden role="alert"></div>
+  <div class="table-wrap">
+    <table id="files-table">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Größe</th>
+          <th>Geändert</th>
+          <th style="width:10rem">Aktionen</th>
+        </tr>
+      </thead>
+      <tbody id="files-tbody"></tbody>
+    </table>
+  </div>
+  <p id="files-empty" class="hint" hidden>Ordner ist leer.</p>
+</div>
+{% endif %}
+
+{% if shares %}
+<script>
+  window.FILES_BOOT = { shares: {{ shares | map(attribute='name') | list | tojson }} };
+</script>
+<script src="{{ url_for('static', filename='js/files.js') }}"></script>
+{% endif %}
+{% endblock %}

@@ -11,7 +11,7 @@ Interne Web-Verwaltung für Samba-Freigaben auf Debian – klein, ohne Reverse P
 - Dashboard mit Speicher, Updates und Neustart-Status
 - **App-Update-Hinweis** – prüft GitHub auf neuere Versionen (Cache: 6 h)
 - **App-Update-Button** – GitHub-Update direkt aus der UI
-- **Import-Assistent** – bestehende Freigaben aus `smb.conf` übernehmen
+- **Datei-Explorer** – Dateien in Freigaben durchsuchen, hoch- und herunterladen
 - CSRF-Schutz & Login-Rate-Limiting
 - Privilege-Daemon über Unix-Socket (kein sudo)
 
