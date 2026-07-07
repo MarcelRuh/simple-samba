@@ -237,13 +237,15 @@ set_permissions() {
         chown samba-ui:samba-ui "${CONFIG_DIR}/initial-password.txt"
         chmod 600 "${CONFIG_DIR}/initial-password.txt"
     fi
-    mkdir -p /var/lib/samba-ui/apt-job /var/lib/samba-ui/app-update-job /var/lib/samba-ui/file-staging
-    chown root:samba-ui /var/lib/samba-ui/apt-job /var/lib/samba-ui/app-update-job /var/lib/samba-ui/file-staging
-    chmod 750 /var/lib/samba-ui/apt-job /var/lib/samba-ui/app-update-job
+    mkdir -p /var/lib/samba-ui/apt-job /var/lib/samba-ui/app-update-job /var/lib/samba-ui/file-staging /var/lib/samba-ui/download-jobs
+    chown root:samba-ui /var/lib/samba-ui/apt-job /var/lib/samba-ui/app-update-job /var/lib/samba-ui/file-staging /var/lib/samba-ui/download-jobs
+    chmod 750 /var/lib/samba-ui/apt-job /var/lib/samba-ui/app-update-job /var/lib/samba-ui/download-jobs
     chmod 770 /var/lib/samba-ui/file-staging
     mkdir -p /run/simple-samba-ui
     chown root:samba-ui /run/simple-samba-ui
     chmod 750 /run/simple-samba-ui
+    ensure_ui_read_access
+    ensure_samba_ui_share_groups
 }
 
 wait_for_priv_socket() {
@@ -256,6 +258,63 @@ wait_for_priv_socket() {
     done
     warn "Privilege-Socket nicht rechtzeitig bereit."
     return 1
+}
+
+ensure_ui_read_access() {
+    local base
+    base="$(_shares_base_from_config)"
+    if command -v setfacl &>/dev/null && id samba-ui &>/dev/null && [[ -d "${base}" ]]; then
+        info "Setze Lese-ACL für samba-ui auf ${base} …"
+        if ! setfacl -Rm "u:samba-ui:rx" "${base}" 2>/dev/null; then
+            warn "ACL auf ${base} nicht setzbar (z. B. ZFS noacl) – nutze Gruppen-Zugriff."
+        fi
+    fi
+}
+
+ensure_samba_ui_share_groups() {
+    if ! id samba-ui &>/dev/null; then
+        return
+    fi
+    local py="${INSTALL_DIR}/venv/bin/python3"
+    [[ -x "${py}" ]] || py=python3
+    local group changed=false
+    while IFS= read -r group; do
+        [[ -n "${group}" ]] || continue
+        if ! getent group "${group}" &>/dev/null; then
+            continue
+        fi
+        if id -nG samba-ui | tr ' ' '\n' | grep -qx "${group}"; then
+            continue
+        fi
+        if usermod -aG "${group}" samba-ui; then
+            info "samba-ui zur Gruppe ${group} hinzugefügt (Download-Zugriff)."
+            changed=true
+        fi
+    done < <("${py}" <<'PY'
+import grp
+import pwd
+import sys
+sys.path.insert(0, "/opt/simple-samba-ui")
+from app.config import load_config
+from app.samba import read_shares
+
+cfg = load_config()
+groups: set[str] = set()
+for share in read_shares(cfg["samba_shares_file"]):
+    if share.guest_ok:
+        continue
+    for user in share.valid_users:
+        try:
+            groups.add(grp.getgrgid(pwd.getpwnam(user).pw_gid).gr_name)
+        except (KeyError, OSError):
+            pass
+for name in sorted(groups):
+    print(name)
+PY
+)
+    if [[ "${changed}" == "true" ]]; then
+        systemctl restart simple-samba-ui 2>/dev/null || true
+    fi
 }
 
 wait_for_service_active() {

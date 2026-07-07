@@ -41,11 +41,21 @@
       </div>
     </header>
 
-    <div id="files-upload-progress" class="files-upload-progress" hidden>
-      <div class="files-upload-progress-track">
-        <div class="files-upload-progress-bar" id="files-upload-progress-bar"></div>
+    <div id="files-upload-progress" class="files-transfer-progress" hidden>
+      <div class="files-transfer-progress-track">
+        <div class="files-transfer-progress-bar" id="files-upload-progress-bar"></div>
       </div>
       <span class="hint" id="files-upload-progress-text"></span>
+    </div>
+
+    <div id="files-download-progress" class="files-transfer-progress files-download-progress" hidden>
+      <div class="files-transfer-progress-row">
+        <div class="files-transfer-progress-track">
+          <div class="files-transfer-progress-bar files-download-progress-bar" id="files-download-progress-bar"></div>
+        </div>
+        <button type="button" class="files-transfer-cancel" id="files-download-cancel-btn" title="Abbrechen" aria-label="Download abbrechen">×</button>
+      </div>
+      <span class="hint" id="files-download-progress-text"></span>
     </div>
 
     <div class="files-content">

@@ -21,6 +21,10 @@
   var progressEl = document.getElementById('files-upload-progress');
   var progressBar = document.getElementById('files-upload-progress-bar');
   var progressText = document.getElementById('files-upload-progress-text');
+  var dlProgressEl = document.getElementById('files-download-progress');
+  var dlProgressBar = document.getElementById('files-download-progress-bar');
+  var dlProgressText = document.getElementById('files-download-progress-text');
+  var dlCancelBtn = document.getElementById('files-download-cancel-btn');
 
   var currentShare = '';
   var currentPath = '';
@@ -28,6 +32,10 @@
   var viewMode = 'grid';
   var lastData = null;
   var searchQuery = '';
+  var downloadBusy = false;
+  var downloadJobId = null;
+  var downloadTransferXhr = null;
+  var downloadCancelled = false;
 
   var IMAGE_EXT = /\.(png|jpe?g|gif|webp|svg|bmp|ico)$/i;
 
@@ -74,6 +82,410 @@
   function downloadUrl(rel) {
     return '/api/files/download?share=' + encodeURIComponent(currentShare) +
       '&path=' + encodeURIComponent(rel);
+  }
+
+  function sleep(ms) {
+    return new Promise(function (resolve) { setTimeout(resolve, ms); });
+  }
+
+  function DownloadAbortError() {
+    this.name = 'DownloadAbortError';
+    this.message = 'Download abgebrochen';
+  }
+
+  function isDownloadAbort(err) {
+    return downloadCancelled || (err && err.name === 'DownloadAbortError');
+  }
+
+  function resetDownloadState() {
+    downloadJobId = null;
+    downloadTransferXhr = null;
+    downloadCancelled = false;
+    setDownloadProgress(false);
+  }
+
+  function cancelDownload() {
+    if (!downloadBusy) return;
+    downloadCancelled = true;
+    var jobId = downloadJobId;
+    if (downloadTransferXhr) {
+      downloadTransferXhr.abort();
+      downloadTransferXhr = null;
+    }
+    setDownloadProgress(false);
+    downloadJobId = null;
+    if (jobId) {
+      apiPost('/api/files/download/cancel', { job: jobId }).catch(function () {});
+    }
+    showToast('Download abgebrochen.', 'success');
+  }
+
+  function setDownloadProgress(visible, pct, text) {
+    if (!dlProgressEl) return;
+    if (!visible) {
+      dlProgressEl.setAttribute('hidden', '');
+      if (dlProgressBar) dlProgressBar.style.width = '0%';
+      if (dlProgressText) dlProgressText.textContent = '';
+      downloadBusy = false;
+      return;
+    }
+    dlProgressEl.removeAttribute('hidden');
+    if (dlProgressBar) {
+      dlProgressBar.style.width = Math.max(0, Math.min(100, pct || 0)) + '%';
+    }
+    if (dlProgressText) dlProgressText.textContent = text || '';
+    downloadBusy = true;
+  }
+
+  function pollDownloadJob(jobId) {
+    var url = '/api/files/download/status?job=' + encodeURIComponent(jobId);
+    return fetch(url, { credentials: 'same-origin' }).then(function (res) {
+      return res.json().then(function (data) {
+        if (!res.ok) throw new Error(data.error || 'Status fehlgeschlagen');
+        return data;
+      });
+    });
+  }
+
+  function waitForDownloadReady(jobId) {
+    return new Promise(function (resolve, reject) {
+      var tick = function () {
+        if (isDownloadAbort()) {
+          reject(new DownloadAbortError());
+          return;
+        }
+        pollDownloadJob(jobId).then(function (status) {
+          if (isDownloadAbort()) {
+            reject(new DownloadAbortError());
+            return;
+          }
+          if (status.status === 'cancelled') {
+            reject(new DownloadAbortError());
+            return;
+          }
+          if (status.status === 'error') {
+            reject(new Error(status.error || 'Download fehlgeschlagen'));
+            return;
+          }
+          setDownloadProgress(
+            true,
+            Math.min(status.progress || 0, 90),
+            status.phase_label || 'Download wird vorbereitet …'
+          );
+          if (status.status === 'ready') {
+            resolve(status);
+            return;
+          }
+          sleep(400).then(tick);
+        }).catch(reject);
+      };
+      tick();
+    });
+  }
+
+  function transferDownloadFile(jobId, fileName) {
+    return new Promise(function (resolve, reject) {
+      var xhr = new XMLHttpRequest();
+      downloadTransferXhr = xhr;
+      xhr.open('GET', '/api/files/download?job=' + encodeURIComponent(jobId));
+      xhr.responseType = 'blob';
+      xhr.addEventListener('progress', function (e) {
+        if (isDownloadAbort()) return;
+        if (e.lengthComputable) {
+          var transferPct = Math.round((e.loaded / e.total) * 100);
+          var pct = 90 + Math.round(transferPct * 0.1);
+          setDownloadProgress(
+            true,
+            pct,
+            'Download: ' + fileName + ' (' + transferPct + '%)'
+          );
+        } else {
+          setDownloadProgress(true, 95, 'Download: ' + fileName + ' …');
+        }
+      });
+      xhr.addEventListener('load', function () {
+        downloadTransferXhr = null;
+        if (isDownloadAbort()) {
+          reject(new DownloadAbortError());
+          return;
+        }
+        if (xhr.status >= 400) {
+          reject(new Error('Download fehlgeschlagen'));
+          return;
+        }
+        var blobUrl = URL.createObjectURL(xhr.response);
+        var link = document.createElement('a');
+        link.href = blobUrl;
+        link.download = fileName;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(blobUrl);
+        resolve();
+      });
+      xhr.addEventListener('error', function () {
+        downloadTransferXhr = null;
+        if (isDownloadAbort()) {
+          reject(new DownloadAbortError());
+          return;
+        }
+        reject(new Error('Download fehlgeschlagen'));
+      });
+      xhr.addEventListener('abort', function () {
+        downloadTransferXhr = null;
+        reject(new DownloadAbortError());
+      });
+      xhr.send();
+    });
+  }
+
+  function joinRel(base, part) {
+    if (!base) return part;
+    if (!part) return base;
+    return base + '/' + part;
+  }
+
+  function fetchDownloadManifest(rel) {
+    var url = '/api/files/download/manifest?share=' + encodeURIComponent(currentShare) +
+      '&path=' + encodeURIComponent(rel);
+    return fetch(url, { credentials: 'same-origin' }).then(function (res) {
+      return res.json().then(function (data) {
+        if (!res.ok) throw new Error(data.error || 'Ordnerliste fehlgeschlagen');
+        return data;
+      });
+    });
+  }
+
+  function fetchDownloadBlob(rel) {
+    return fetch(downloadUrl(rel), { credentials: 'same-origin' }).then(function (res) {
+      if (!res.ok) {
+        return res.json().then(function (data) {
+          throw new Error(data.error || 'Download fehlgeschlagen');
+        }).catch(function () {
+          throw new Error('Download fehlgeschlagen');
+        });
+      }
+      return res.blob();
+    });
+  }
+
+  function canUseFolderPicker() {
+    return window.isSecureContext && typeof window.showDirectoryPicker === 'function';
+  }
+
+  function folderZipUrl(rel) {
+    return '/api/files/download/folder?share=' + encodeURIComponent(currentShare) +
+      '&path=' + encodeURIComponent(rel);
+  }
+
+  function transferDirectDownloadFromUrl(url, fileName) {
+    return new Promise(function (resolve, reject) {
+      var xhr = new XMLHttpRequest();
+      downloadTransferXhr = xhr;
+      xhr.open('GET', url);
+      xhr.responseType = 'blob';
+      xhr.addEventListener('progress', function (e) {
+        if (isDownloadAbort()) return;
+        if (e.lengthComputable) {
+          var transferPct = Math.round((e.loaded / e.total) * 100);
+          setDownloadProgress(true, transferPct, 'Download: ' + fileName + ' (' + transferPct + '%)');
+        } else {
+          setDownloadProgress(true, 50, 'Download: ' + fileName + ' …');
+        }
+      });
+      xhr.addEventListener('load', function () {
+        downloadTransferXhr = null;
+        if (isDownloadAbort()) {
+          reject(new DownloadAbortError());
+          return;
+        }
+        if (xhr.status >= 400) {
+          reject(new Error('Download fehlgeschlagen'));
+          return;
+        }
+        var blobUrl = URL.createObjectURL(xhr.response);
+        var link = document.createElement('a');
+        link.href = blobUrl;
+        link.download = fileName;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(blobUrl);
+        resolve();
+      });
+      xhr.addEventListener('error', function () {
+        downloadTransferXhr = null;
+        if (isDownloadAbort()) {
+          reject(new DownloadAbortError());
+          return;
+        }
+        reject(new Error('Download fehlgeschlagen'));
+      });
+      xhr.addEventListener('abort', function () {
+        downloadTransferXhr = null;
+        reject(new DownloadAbortError());
+      });
+      xhr.send();
+    });
+  }
+
+  function startFolderZipDownload(rel, folderName) {
+    if (downloadBusy) {
+      showToast('Es läuft bereits ein Download.', 'error');
+      return;
+    }
+    downloadCancelled = false;
+    downloadJobId = null;
+    setDownloadProgress(true, 0, 'Ordner wird vorbereitet …');
+    transferDirectDownloadFromUrl(folderZipUrl(rel), folderName + '.zip')
+      .then(function () {
+        if (isDownloadAbort()) return;
+        setDownloadProgress(true, 100, 'Download abgeschlossen');
+        showToast('Ordner-Download abgeschlossen.', 'success');
+      })
+      .catch(function (err) {
+        if (isDownloadAbort(err)) return;
+        showApiError(err);
+      })
+      .finally(function () {
+        if (downloadCancelled) {
+          downloadCancelled = false;
+          return;
+        }
+        sleep(800).then(function () { resetDownloadState(); });
+      });
+  }
+
+  function writeBlobToDirectory(rootHandle, relPath, blob) {
+    var parts = relPath.split('/').filter(Boolean);
+    var fileName = parts.pop();
+    var chain = Promise.resolve(rootHandle);
+    parts.forEach(function (part) {
+      chain = chain.then(function (dirHandle) {
+        return dirHandle.getDirectoryHandle(part, { create: true });
+      });
+    });
+    return chain.then(function (dirHandle) {
+      return dirHandle.getFileHandle(fileName, { create: true }).then(function (fileHandle) {
+        return fileHandle.createWritable().then(function (writable) {
+          return writable.write(blob).then(function () {
+            return writable.close();
+          });
+        });
+      });
+    });
+  }
+
+  function startFolderDownload(rel, folderName) {
+    if (!canUseFolderPicker()) {
+      startFolderZipDownload(rel, folderName);
+      return;
+    }
+    if (downloadBusy) {
+      showToast('Es läuft bereits ein Download.', 'error');
+      return;
+    }
+    downloadCancelled = false;
+    downloadJobId = null;
+    setDownloadProgress(true, 0, 'Ordner wird vorbereitet …');
+
+    window.showDirectoryPicker({ mode: 'readwrite' })
+      .then(function (dirHandle) {
+        return dirHandle.getDirectoryHandle(folderName, { create: true });
+      })
+      .then(function (rootHandle) {
+        if (isDownloadAbort()) throw new DownloadAbortError();
+        return fetchDownloadManifest(rel).then(function (manifest) {
+          return { root: rootHandle, manifest: manifest };
+        });
+      })
+      .then(function (ctx) {
+        var files = ctx.manifest.files || [];
+        if (!files.length) {
+          throw new Error('Der Ordner enthält keine Dateien.');
+        }
+        var total = files.length;
+        var done = 0;
+        var chain = Promise.resolve();
+        files.forEach(function (file) {
+          chain = chain.then(function () {
+            if (isDownloadAbort()) throw new DownloadAbortError();
+            var fileRel = joinRel(rel, file.rel);
+            setDownloadProgress(
+              true,
+              Math.round((done / total) * 100),
+              'Download: ' + file.rel + ' (' + done + '/' + total + ')'
+            );
+            return fetchDownloadBlob(fileRel).then(function (blob) {
+              return writeBlobToDirectory(ctx.root, file.rel, blob);
+            }).then(function () {
+              done += 1;
+              setDownloadProgress(
+                true,
+                Math.round((done / total) * 100),
+                'Download: ' + file.rel + ' (' + done + '/' + total + ')'
+              );
+            });
+          });
+        });
+        return chain;
+      })
+      .then(function () {
+        if (isDownloadAbort()) return;
+        setDownloadProgress(true, 100, 'Download abgeschlossen');
+        showToast('Ordner-Download abgeschlossen.', 'success');
+      })
+      .catch(function (err) {
+        if (isDownloadAbort(err)) return;
+        if (err && err.name === 'AbortError') return;
+        showApiError(err);
+      })
+      .finally(function () {
+        if (downloadCancelled) {
+          downloadCancelled = false;
+          return;
+        }
+        sleep(800).then(function () { resetDownloadState(); });
+      });
+  }
+
+  function startFileDownload(rel, displayName) {
+    if (downloadBusy) {
+      showToast('Es läuft bereits ein Download.', 'error');
+      return;
+    }
+    downloadCancelled = false;
+    downloadJobId = null;
+    setDownloadProgress(true, 0, 'Download wird gestartet …');
+    transferDirectDownload(rel, displayName)
+      .then(function () {
+        if (isDownloadAbort()) return;
+        setDownloadProgress(true, 100, 'Download abgeschlossen');
+        showToast('Download abgeschlossen.', 'success');
+      })
+      .catch(function (err) {
+        if (isDownloadAbort(err)) return;
+        showApiError(err);
+      })
+      .finally(function () {
+        if (downloadCancelled) {
+          downloadCancelled = false;
+          return;
+        }
+        sleep(800).then(function () { resetDownloadState(); });
+      });
+  }
+
+  function transferDirectDownload(rel, fileName) {
+    return transferDirectDownloadFromUrl(downloadUrl(rel), fileName);
+  }
+
+  function startDownload(rel, displayName, entryType) {
+    if (entryType === 'dir') {
+      startFolderDownload(rel, displayName);
+      return;
+    }
+    startFileDownload(rel, displayName);
   }
 
   function fileIconSvg(type) {
@@ -188,11 +600,16 @@
     wrap.className = 'files-item-actions';
 
     var rel = relPath(data, entry.name);
-    var dl = document.createElement('a');
+    var dl = document.createElement('button');
+    dl.type = 'button';
     dl.className = 'files-action-btn';
-    dl.title = entry.type === 'dir' ? 'Als ZIP herunterladen' : 'Herunterladen';
-    dl.href = downloadUrl(rel);
+    dl.title = entry.type === 'dir' ? 'Ordner herunterladen' : 'Herunterladen';
     dl.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>';
+    dl.addEventListener('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      startDownload(rel, entry.name, entry.type);
+    });
     wrap.appendChild(dl);
 
     if (!readOnly) {
@@ -214,7 +631,7 @@
     if (entry.type === 'dir') {
       loadBrowse(relPath(data, entry.name));
     } else {
-      window.location.href = downloadUrl(relPath(data, entry.name));
+      startDownload(relPath(data, entry.name), entry.name, entry.type);
     }
   }
 
@@ -434,7 +851,7 @@
     var files = Array.prototype.slice.call(fileList);
     var total = files.length;
     if (progressEl) {
-      progressEl.hidden = false;
+      progressEl.removeAttribute('hidden');
       progressBar.style.width = '0%';
     }
 
@@ -454,7 +871,7 @@
       .catch(showApiError)
       .finally(function () {
         if (progressEl) {
-          progressEl.hidden = true;
+          progressEl.setAttribute('hidden', '');
           progressBar.style.width = '0%';
           progressText.textContent = '';
         }
@@ -496,6 +913,9 @@
   });
 
   refreshBtn.addEventListener('click', function () { loadBrowse(currentPath); });
+  if (dlCancelBtn) {
+    dlCancelBtn.addEventListener('click', cancelDownload);
+  }
   viewToggle.addEventListener('click', toggleView);
   backBtn.addEventListener('click', function () {
     if (lastData && lastData.parent_rel !== undefined) {

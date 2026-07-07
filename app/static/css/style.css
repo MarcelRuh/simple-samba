@@ -1402,6 +1402,7 @@ pre.output {
   font-weight: 600;
 }
 
+.files-transfer-progress,
 .files-upload-progress {
   display: flex;
   flex-direction: column;
@@ -1410,6 +1411,42 @@ pre.output {
   border-bottom: 1px solid var(--border);
 }
 
+.files-transfer-progress[hidden],
+.files-upload-progress[hidden],
+.files-download-progress[hidden] {
+  display: none !important;
+}
+
+.files-transfer-progress-row {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.files-transfer-progress-row .files-transfer-progress-track {
+  flex: 1;
+  min-width: 0;
+}
+
+.files-transfer-cancel {
+  flex-shrink: 0;
+  width: 1.5rem;
+  height: 1.5rem;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.files-transfer-cancel:hover {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}
+
+.files-transfer-progress-track,
 .files-upload-progress-track {
   height: 4px;
   background: var(--border);
@@ -1417,11 +1454,17 @@ pre.output {
   overflow: hidden;
 }
 
-.files-upload-progress-bar {
+.files-transfer-progress-bar,
+.files-upload-progress-bar,
+.files-download-progress-bar {
   height: 100%;
   width: 0;
   background: var(--accent);
   transition: width 0.15s ease;
+}
+
+.files-download-progress .files-download-progress-bar {
+  background: #3b82f6;
 }
 
 .files-content {

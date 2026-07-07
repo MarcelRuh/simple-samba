@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import secrets
 
-from flask import Flask, after_this_request, flash, jsonify, redirect, render_template, request, send_file, url_for
+from flask import Flask, Response, after_this_request, flash, jsonify, redirect, render_template, request, send_file, url_for
 
 from app.auth import (
     attempt_login,
@@ -18,15 +18,21 @@ from app.auth import (
     safe_redirect_target,
     verify_password,
 )
-from app.config import load_config, save_config
 from app.csrf import get_csrf_token, validate_csrf_token
+from app.config import load_config, save_config
 from app.files import (
     FileBrowserError,
+    cancel_download_job,
+    cleanup_download_job,
     commit_upload,
     create_directory,
     delete_path,
+    download_job_status,
+    download_manifest,
+    iter_folder_zip,
     list_directory,
     stage_download,
+    start_download_job,
 )
 from app.rate_limit import clear_login_attempts, is_login_locked, record_failed_login
 from app.samba import (
@@ -74,6 +80,15 @@ from app.validators import (
 
 FILE_STAGING_DIR = "/var/lib/samba-ui/file-staging"
 INITIAL_PASSWORD_FILE = "/etc/simple-samba-ui/initial-password.txt"
+
+
+def _cleanup_staged_download(path: str, direct: bool = False) -> None:
+    if direct or not path.startswith(FILE_STAGING_DIR + "/"):
+        return
+    try:
+        os.unlink(path)
+    except OSError:
+        pass
 
 
 def create_app() -> Flask:
@@ -469,26 +484,102 @@ def create_app() -> Flask:
     @app.route("/api/files/download")
     @login_required
     def files_api_download():
+        """Synchroner Download (Vorschaubilder)."""
         share_name = request.args.get("share", "")
         rel_path = request.args.get("path", "")
+        job_id = request.args.get("job", "")
         try:
-            info = stage_download(share_name, rel_path)
-            staging = info["staging"]
+            direct = False
+            if job_id:
+                status = download_job_status(job_id)
+                if status.get("status") != "ready":
+                    return jsonify({"error": "Download noch nicht bereit."}), 409
+                source_path = status.get("staging") or ""
+                name = status.get("name") or "download"
+                direct = bool(status.get("direct"))
+            else:
+                info = stage_download(share_name, rel_path)
+                source_path = info.get("path") or info.get("staging") or ""
+                name = info.get("name") or "download"
+                direct = bool(info.get("direct", True))
+                job_id = ""
 
             @after_this_request
             def _cleanup(response):
-                try:
-                    os.unlink(staging)
-                except OSError:
-                    pass
+                _cleanup_staged_download(source_path, direct)
+                if job_id:
+                    try:
+                        cleanup_download_job(job_id)
+                    except FileBrowserError:
+                        pass
                 return response
 
             return send_file(
-                staging,
+                source_path,
                 as_attachment=True,
-                download_name=info.get("name") or "download",
+                download_name=name,
                 mimetype="application/octet-stream",
             )
+        except (ValidationError, FileBrowserError) as exc:
+            return jsonify({"error": str(exc)}), 400
+
+    @app.route("/api/files/download/start", methods=["POST"])
+    @login_required
+    def files_api_download_start():
+        data = request.get_json(silent=True) or {}
+        try:
+            job_id = start_download_job(
+                str(data.get("share", "")),
+                str(data.get("path", "")),
+            )
+            return jsonify({"ok": True, "job_id": job_id})
+        except (ValidationError, FileBrowserError) as exc:
+            return jsonify({"error": str(exc)}), 400
+
+    @app.route("/api/files/download/status")
+    @login_required
+    def files_api_download_status():
+        job_id = request.args.get("job", "")
+        try:
+            return jsonify(download_job_status(job_id))
+        except (ValidationError, FileBrowserError) as exc:
+            return jsonify({"error": str(exc)}), 400
+
+    @app.route("/api/files/download/manifest")
+    @login_required
+    def files_api_download_manifest():
+        share_name = request.args.get("share", "")
+        rel_path = request.args.get("path", "")
+        try:
+            return jsonify(download_manifest(share_name, rel_path))
+        except (ValidationError, FileBrowserError) as exc:
+            return jsonify({"error": str(exc)}), 400
+
+    @app.route("/api/files/download/folder")
+    @login_required
+    def files_api_download_folder():
+        share_name = request.args.get("share", "")
+        rel_path = request.args.get("path", "")
+        try:
+            manifest = download_manifest(share_name, rel_path)
+            folder_name = manifest.get("name") or "ordner"
+            return Response(
+                iter_folder_zip(share_name, rel_path),
+                mimetype="application/zip",
+                headers={
+                    "Content-Disposition": f'attachment; filename="{folder_name}.zip"',
+                },
+            )
+        except (ValidationError, FileBrowserError) as exc:
+            return jsonify({"error": str(exc)}), 400
+
+    @app.route("/api/files/download/cancel", methods=["POST"])
+    @login_required
+    def files_api_download_cancel():
+        data = request.get_json(silent=True) or {}
+        try:
+            cancel_download_job(str(data.get("job", "")))
+            return jsonify({"ok": True})
         except (ValidationError, FileBrowserError) as exc:
             return jsonify({"error": str(exc)}), 400
 

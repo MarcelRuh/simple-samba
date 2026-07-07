@@ -14,6 +14,7 @@ import configparser
 import os
 import pwd
 import re
+import secrets
 import shutil
 import socket
 import subprocess
@@ -21,7 +22,6 @@ import sys
 import tempfile
 import threading
 import time
-import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -35,6 +35,7 @@ BACKUP_DIR = Path("/var/backups/simple-samba-ui")
 MAX_BACKUPS = 20
 MAX_BODY_BYTES = 512_000
 FILE_STAGING_DIR = Path("/var/lib/samba-ui/file-staging")
+DOWNLOAD_JOBS_DIR = Path("/var/lib/samba-ui/download-jobs")
 MAX_UPLOAD_BYTES = 512 * 1024 * 1024
 USER_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$", re.IGNORECASE)
 
@@ -69,7 +70,6 @@ DEFAULT_SOURCE_CLONE_DIR = Path("/usr/local/src/simple-samba")
 DEFAULT_GITHUB_REPO = "MarcelRuh/simple-samba"
 DEFAULT_GITHUB_BRANCH = "main"
 _apt_job_lock = threading.Lock()
-_app_update_job_lock = threading.Lock()
 PHASE_LABELS = {
     "start": "Wird gestartet …",
     "update": "Paketlisten aktualisieren",
@@ -359,6 +359,28 @@ def parse_share_sections(content: str) -> list[dict[str, str]]:
     return sections
 
 
+def ensure_ui_download_acl(path: Path) -> None:
+    """Lesezugriff für samba-ui auf Freigabe-Pfade (direkter Download ohne Kopie)."""
+    if shutil.which("setfacl") is None:
+        return
+    target = str(path)
+    try:
+        subprocess.run(
+            ["setfacl", "-m", f"u:{ALLOWED_UID_NAME}:rx", target],
+            check=False,
+            capture_output=True,
+            timeout=30,
+        )
+        subprocess.run(
+            ["setfacl", "-d", "-m", f"u:{ALLOWED_UID_NAME}:rx", target],
+            check=False,
+            capture_output=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+
 def ensure_share_directories(content: str) -> tuple[bool, str]:
     """Erstellt Freigabe-Verzeichnisse; Rechte nur best-effort (ZFS-Mounts)."""
     errors: list[str] = []
@@ -391,6 +413,7 @@ def ensure_share_directories(content: str) -> tuple[bool, str]:
             warnings.append(
                 f"{path_str}: Rechte nicht änderbar ({exc}) – bei ZFS-Mount ggf. am Host setzen."
             )
+        ensure_ui_download_acl(p)
 
     if errors:
         return False, "Verzeichnisse konnten nicht vorbereitet werden:\n" + "\n".join(errors)
@@ -582,38 +605,251 @@ def cmd_files_stage_download(path_str: str) -> tuple[bool, str]:
     except ValueError as exc:
         return False, str(exc)
 
-    _ensure_file_staging_dir()
-    token = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S%f")
+    if not source.is_file():
+        return False, "Nur einzelne Dateien können heruntergeladen werden."
+
     try:
-        if source.is_file():
-            download_name = source.name
-            staging = FILE_STAGING_DIR / f"dl-{token}-{download_name}"
-            shutil.copy2(source, staging)
-        elif source.is_dir():
-            download_name = f"{source.name}.zip"
-            staging = FILE_STAGING_DIR / f"dl-{token}-{download_name}"
-            with zipfile.ZipFile(staging, "w", zipfile.ZIP_DEFLATED) as archive:
-                for root, _dirs, files in os.walk(source):
-                    for filename in files:
-                        if filename.startswith("."):
-                            continue
-                        full_path = Path(root) / filename
-                        archive.write(full_path, full_path.relative_to(source).as_posix())
-        else:
-            return False, "Pfad nicht gefunden."
-        os.chmod(staging, 0o640)
-        uid = pwd.getpwnam("samba-ui").pw_uid
-        gid = pwd.getpwnam("samba-ui").pw_gid
-        os.chown(staging, uid, gid)
+        size = source.stat().st_size
     except OSError as exc:
-        return False, f"Download konnte nicht vorbereitet werden: {exc}"
+        return False, f"Datei nicht lesbar: {exc}"
 
     payload = {
-        "staging": str(staging),
-        "name": download_name,
-        "size": staging.stat().st_size,
+        "path": str(source),
+        "name": source.name,
+        "size": size,
+        "direct": True,
     }
     return True, json.dumps(payload, ensure_ascii=False)
+
+
+def _collect_download_files(source: Path) -> list[dict]:
+    files: list[dict] = []
+    if source.is_file():
+        info = source.stat()
+        return [{"rel": source.name, "size": info.st_size}]
+    if not source.is_dir():
+        return []
+    for root, _dirs, filenames in os.walk(source):
+        for filename in filenames:
+            if filename.startswith("."):
+                continue
+            full_path = Path(root) / filename
+            rel = full_path.relative_to(source).as_posix()
+            try:
+                size = full_path.stat().st_size
+            except OSError:
+                size = 0
+            files.append({"rel": rel, "size": size})
+    return files
+
+
+def cmd_files_download_manifest(path_str: str) -> tuple[bool, str]:
+    try:
+        source = validate_browser_path(path_str)
+    except ValueError as exc:
+        return False, str(exc)
+
+    if not source.is_dir():
+        return False, "Pfad ist kein Ordner."
+
+    try:
+        files = _collect_download_files(source)
+    except OSError as exc:
+        return False, f"Ordner nicht lesbar: {exc}"
+
+    payload = {
+        "name": source.name,
+        "files": files,
+        "total_files": len(files),
+        "total_size": sum(item["size"] for item in files),
+    }
+    return True, json.dumps(payload, ensure_ascii=False)
+
+
+def _download_job_path(job_id: str) -> Path:
+    safe = "".join(ch for ch in job_id if ch.isalnum())
+    return DOWNLOAD_JOBS_DIR / f"{safe}.json"
+
+
+def _chown_download_job(path: Path) -> None:
+    try:
+        gid = grp.getgrnam(ALLOWED_UID_NAME).gr_gid
+        os.chown(path, 0, gid)
+        os.chmod(path, 0o660)
+    except (KeyError, OSError):
+        pass
+
+
+def _write_download_job(job_id: str, data: dict) -> None:
+    DOWNLOAD_JOBS_DIR.mkdir(parents=True, exist_ok=True, mode=0o750)
+    path = _download_job_path(job_id)
+    path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    _chown_download_job(path)
+
+
+def _read_download_job(job_id: str) -> dict | None:
+    path = _download_job_path(job_id)
+    if not path.is_file():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def _download_job_cancelled(job_id: str) -> bool:
+    data = _read_download_job(job_id)
+    return bool(data and data.get("status") == "cancelled")
+
+
+def _cleanup_download_staging(job_id: str, staging: Path | None = None) -> None:
+    if staging is not None:
+        try:
+            staging.unlink(missing_ok=True)
+        except OSError:
+            pass
+    try:
+        for path in FILE_STAGING_DIR.glob(f"dl-{job_id}-*"):
+            path.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def _abort_if_cancelled(job_id: str, staging: Path | None = None) -> bool:
+    if not _download_job_cancelled(job_id):
+        return False
+    _cleanup_download_staging(job_id, staging)
+    return True
+
+
+def _run_download_job(job_id: str, source: Path) -> None:
+    try:
+        if _abort_if_cancelled(job_id):
+            return
+
+        if source.is_dir():
+            _write_download_job(job_id, {
+                "status": "error",
+                "error": "Ordner werden dateiweise heruntergeladen.",
+                "progress": 0,
+            })
+            return
+
+        if not source.is_file():
+            _write_download_job(job_id, {
+                "status": "error",
+                "error": "Pfad nicht gefunden.",
+                "progress": 0,
+            })
+            return
+
+        if _abort_if_cancelled(job_id):
+            return
+
+        try:
+            size = source.stat().st_size
+        except OSError as exc:
+            _write_download_job(job_id, {
+                "status": "error",
+                "error": f"Datei nicht lesbar: {exc}",
+                "progress": 0,
+            })
+            return
+
+        _write_download_job(job_id, {
+            "status": "ready",
+            "phase": "ready",
+            "phase_label": "Download bereit",
+            "progress": 100,
+            "name": source.name,
+            "staging": str(source),
+            "size": size,
+            "direct": True,
+        })
+    except OSError as exc:
+        _write_download_job(job_id, {
+            "status": "error",
+            "error": f"Download fehlgeschlagen: {exc}",
+            "progress": 0,
+        })
+
+
+def cmd_files_download_start(path_str: str) -> tuple[bool, str]:
+    try:
+        source = validate_browser_path(path_str)
+    except ValueError as exc:
+        return False, str(exc)
+
+    if source.is_dir():
+        return False, "Ordner werden dateiweise heruntergeladen."
+
+    job_id = secrets.token_hex(12)
+    _write_download_job(job_id, {
+        "status": "running",
+        "phase": "start",
+        "phase_label": "Download wird gestartet …",
+        "progress": 0,
+    })
+    thread = threading.Thread(
+        target=_run_download_job,
+        args=(job_id, source),
+        daemon=True,
+    )
+    thread.start()
+    return True, json.dumps({"job_id": job_id}, ensure_ascii=False)
+
+
+def cmd_files_download_status(job_id: str) -> tuple[bool, str]:
+    job_id = (job_id or "").strip()
+    if not job_id:
+        return False, "job_id fehlt."
+    data = _read_download_job(job_id)
+    if not data:
+        return False, "Download-Job nicht gefunden."
+    return True, json.dumps(data, ensure_ascii=False)
+
+
+def cmd_files_download_cleanup(job_id: str) -> tuple[bool, str]:
+    job_id = (job_id or "").strip()
+    data = _read_download_job(job_id)
+    if data:
+        if not data.get("direct"):
+            staging = data.get("staging")
+            if staging:
+                try:
+                    Path(staging).unlink(missing_ok=True)
+                except OSError:
+                    pass
+    _cleanup_download_staging(job_id)
+    path = _download_job_path(job_id)
+    try:
+        path.unlink(missing_ok=True)
+    except OSError:
+        pass
+    return True, "OK"
+
+
+def cmd_files_download_cancel(job_id: str) -> tuple[bool, str]:
+    job_id = (job_id or "").strip()
+    if not job_id:
+        return False, "job_id fehlt."
+    data = _read_download_job(job_id)
+    if not data:
+        return True, "OK"
+    if data.get("status") in ("cancelled", "error"):
+        return True, "OK"
+    if not data.get("direct"):
+        _cleanup_download_staging(job_id, Path(data["staging"]) if data.get("staging") else None)
+    else:
+        _cleanup_download_staging(job_id)
+    _write_download_job(job_id, {
+        "status": "cancelled",
+        "phase": "cancelled",
+        "phase_label": "Download abgebrochen",
+        "progress": 0,
+    })
+    return True, "OK"
+
 
 def cmd_files_commit_upload(body_text: str) -> tuple[bool, str]:
     try:
@@ -1279,6 +1515,11 @@ def handle_request(line: str, body: bytes) -> tuple[bool, str]:
         "files-mkdir": lambda: cmd_files_mkdir(arg),
         "files-delete": lambda: cmd_files_delete(arg),
         "files-stage-download": lambda: cmd_files_stage_download(arg),
+        "files-download-manifest": lambda: cmd_files_download_manifest(arg),
+        "files-download-start": lambda: cmd_files_download_start(arg),
+        "files-download-status": lambda: cmd_files_download_status(arg),
+        "files-download-cancel": lambda: cmd_files_download_cancel(arg),
+        "files-download-cleanup": lambda: cmd_files_download_cleanup(arg),
         "files-commit-upload": lambda: cmd_files_commit_upload(body_text),
     }
 
