@@ -2,7 +2,8 @@
 # Gemeinsame Install-/Update-Logik für Simple Samba UI
 # Quellverzeichnis (Clone) → Deployment nach /opt/simple-samba-ui
 
-APP_VERSION="1.7.1"
+_INSTALL_COMMON_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+APP_VERSION="$(PYTHONPATH="${_INSTALL_COMMON_DIR}" python3 -c "from app import __version__; print(__version__)" 2>/dev/null || echo "unknown")"
 INSTALL_DIR="/opt/simple-samba-ui"
 CONFIG_DIR="/etc/simple-samba-ui"
 CONFIG_FILE="${CONFIG_DIR}/config.json"
@@ -47,6 +48,48 @@ resolve_access_host() {
             echo "${bind_host}"
             ;;
     esac
+}
+
+prompt_bind_host() {
+    local default_ip="${1:-$(detect_primary_ipv4)}"
+    local choice
+
+    echo ""
+    echo "  Bind-Adresse für die Web-UI:"
+    echo "    1) LAN-IP (${default_ip})  [empfohlen]"
+    echo "    2) Nur lokal (127.0.0.1) – Zugriff per SSH-Tunnel"
+    echo "    3) Alle Interfaces (0.0.0.0) – im gesamten LAN erreichbar"
+    echo ""
+    read -rp "Auswahl [1]: " choice
+    choice="${choice:-1}"
+    case "${choice}" in
+        1|"")
+            echo "${default_ip}"
+            ;;
+        2)
+            echo "127.0.0.1"
+            ;;
+        3)
+            echo "0.0.0.0"
+            ;;
+        *)
+            warn "Ungültige Auswahl – nutze LAN-IP ${default_ip}"
+            echo "${default_ip}"
+            ;;
+    esac
+}
+
+validate_bind_host_value() {
+    local host="$1"
+    local src="${2:-${_INSTALL_COMMON_DIR}}"
+    PYTHONPATH="${src}" python3 -c "
+from app.validators import validate_bind_host, ValidationError
+import sys
+try:
+    print(validate_bind_host(sys.argv[1]))
+except ValidationError:
+    sys.exit(1)
+" "${host}" 2>/dev/null
 }
 
 ensure_packages() {

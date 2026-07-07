@@ -124,14 +124,14 @@ def stage_download(share_name: str, rel_path: str) -> dict[str, Any]:
         raise FileBrowserError("Ungültige Antwort vom Server.") from exc
 
 
-def commit_upload(share_name: str, rel_dir: str, staging_path: str) -> None:
+def commit_upload(share_name: str, rel_dir: str, staging_path: str, filename: str) -> None:
     config = load_config()
     shares = read_shares(config["samba_shares_file"])
     share = _share_for_name(shares, share_name)
     if share.read_only:
         raise FileBrowserError("Freigabe ist schreibgeschützt.")
     parent = resolve_browser_path(share, rel_dir, config["shares_base_path"])
-    payload = json.dumps({"parent": parent, "staging": staging_path})
+    payload = json.dumps({"parent": parent, "staging": staging_path, "filename": filename})
     ok, detail = _priv_request("files-commit-upload", body=payload)
     if not ok:
         raise FileBrowserError(detail or "Upload fehlgeschlagen.")

@@ -2,6 +2,8 @@
 
 Interne Web-Verwaltung für Samba-Freigaben auf Debian – klein, ohne Reverse Proxy, ohne nginx/Caddy/Apache.
 
+**Aktuelle Version:** v1.8.0
+
 ## Screenshots
 
 | Dashboard | Benutzer |
@@ -71,17 +73,26 @@ Das Script klont das Repository nach `/usr/local/src/simple-samba`, installiert 
 
 **Bestehendes Samba:** Freigaben aus `smb.conf` werden automatisch importiert. Liegen Pfade z. B. unter `/srv/raid5` statt `/srv/shares`, wird das Basisverzeichnis entsprechend erkannt und gespeichert.
 
-Die Web-UI ist danach unter der **normalen IP-Adresse** des Servers erreichbar (Standard: lauscht auf `0.0.0.0:8080`).
+Die Web-UI ist danach unter der **LAN-IP des Servers** erreichbar (Standard bei Installation: Bind auf die interne IP, z. B. `192.168.x.x:8080`).
+
+Bei interaktiver Installation wählst du die Bind-Adresse:
+
+1. **LAN-IP** (empfohlen) – nur im lokalen Netz erreichbar  
+2. **127.0.0.1** – nur lokal / SSH-Tunnel  
+3. **0.0.0.0** – alle Netzwerk-Interfaces  
 
 Am Ende werden **URL, Benutzername und Passwort** ausgegeben.
 
 **Optional** (eigene Werte):
 
 ```bash
+SIMPLE_SAMBA_BIND_HOST=192.168.178.252 \
 SIMPLE_SAMBA_BIND_PORT=8080 \
 SIMPLE_SAMBA_SHARES_BASE=/srv/shares \
 wget -qO- https://raw.githubusercontent.com/MarcelRuh/simple-samba/main/bootstrap.sh | bash
 ```
+
+Ohne `SIMPLE_SAMBA_BIND_HOST` wird automatisch die **LAN-IP** verwendet.
 
 ### Manuell (git clone)
 
@@ -95,9 +106,9 @@ sudo bash install.sh
 
 | Adresse | Einsatz |
 |---------|---------|
-| `0.0.0.0` | **Standard (One-Liner)** – erreichbar unter der LAN-IP des Servers |
+| LAN-IP | **Standard (Installation)** – empfohlen im lokalen Netz |
 | `127.0.0.1` | Nur lokal / SSH-Tunnel |
-| LAN-IP | Nur an dieser Adresse lauschen |
+| `0.0.0.0` | Alle Interfaces – nur in vertrauenswürdigem LAN |
 
 Konfiguration: `/etc/simple-samba-ui/config.json`
 

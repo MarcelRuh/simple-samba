@@ -67,6 +67,10 @@
         <div class="topbar-title">{% block page_heading %}{{ app_name }}{% endblock %}</div>
       </div>
       <div class="topbar-meta">{{ access_host }}:{{ config.bind_port }}</div>
+      <form method="post" action="{{ url_for('logout') }}" class="topbar-logout">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="btn btn-ghost btn-sm">Abmelden</button>
+      </form>
     </header>
     <main class="container">
       {% if app_update and app_update.update_available and request.endpoint != 'system_updates' %}

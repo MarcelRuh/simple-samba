@@ -13,6 +13,9 @@
   var uploadLabel = document.getElementById('files-upload-label');
   var mkdirBtn = document.getElementById('files-mkdir-btn');
   var refreshBtn = document.getElementById('files-refresh-btn');
+  var progressEl = document.getElementById('files-upload-progress');
+  var progressBar = document.getElementById('files-upload-progress-bar');
+  var progressText = document.getElementById('files-upload-progress-text');
 
   var currentShare = '';
   var currentPath = '';
@@ -54,10 +57,6 @@
     uploadLabel.classList.toggle('disabled', disabled);
     uploadInput.disabled = disabled;
     mkdirBtn.disabled = disabled;
-  }
-
-  function showError(_msg) {
-    /* Fehler nur als Toast – kein roter Balken in der UI */
   }
 
   function downloadUrl(relPath) {
@@ -167,9 +166,8 @@
             var rel = data.rel_path ? data.rel_path + '/' + entryName : entryName;
             var label = entryType === 'dir' ? 'Ordner' : 'Datei';
             window.SambaUI.confirm(
-              label + ' löschen',
               '"' + entryName + '" wirklich löschen?',
-              'Löschen'
+              { title: label + ' löschen', okLabel: 'Löschen', danger: true }
             ).then(function (ok) {
               if (!ok) return;
               apiPost('/api/files/delete', { share: currentShare, path: rel })
@@ -197,7 +195,6 @@
 
   function showApiError(err) {
     var msg = (err && err.message) ? err.message : 'Unbekannter Fehler';
-    showError(msg);
     showToast(msg, 'error');
   }
 
@@ -220,7 +217,6 @@
 
   function loadBrowse(path) {
     currentPath = path || '';
-    showError('');
     loadingEl.hidden = false;
     emptyEl.hidden = true;
 
@@ -244,32 +240,75 @@
       .finally(function () { loadingEl.hidden = true; });
   }
 
-  function uploadFiles(fileList) {
-    if (!fileList || !fileList.length || readOnly) return;
-    var pending = Array.prototype.slice.call(fileList);
-    var uploadNext = function () {
-      if (!pending.length) {
-        showToast('Upload abgeschlossen.', 'success');
-        loadBrowse(currentPath);
-        return;
-      }
-      var file = pending.shift();
+  function uploadOne(file, index, total) {
+    return new Promise(function (resolve, reject) {
+      var xhr = new XMLHttpRequest();
       var form = new FormData();
       form.append('csrf_token', csrfToken());
       form.append('share', currentShare);
       form.append('path', currentPath);
       form.append('file', file, file.name);
-      fetch('/api/files/upload', { method: 'POST', credentials: 'same-origin', body: form })
-        .then(function (res) {
-          return res.json().then(function (data) {
-            if (!res.ok) throw new Error(data.error || 'Upload fehlgeschlagen');
-            return data;
-          });
-        })
-        .then(uploadNext)
-        .catch(showApiError);
-    };
-    uploadNext();
+
+      xhr.upload.addEventListener('progress', function (e) {
+        if (e.lengthComputable) {
+          var pct = Math.round((e.loaded / e.total) * 100);
+          progressBar.style.width = pct + '%';
+          progressText.textContent =
+            'Upload ' + (index + 1) + '/' + total + ': ' + file.name + ' (' + pct + '%)';
+        } else {
+          progressText.textContent =
+            'Upload ' + (index + 1) + '/' + total + ': ' + file.name + ' …';
+        }
+      });
+
+      xhr.addEventListener('load', function () {
+        var data;
+        try {
+          data = JSON.parse(xhr.responseText);
+        } catch (e) {
+          reject(new Error('Upload fehlgeschlagen'));
+          return;
+        }
+        if (xhr.status >= 400) {
+          reject(new Error(data.error || 'Upload fehlgeschlagen'));
+          return;
+        }
+        resolve(data);
+      });
+      xhr.addEventListener('error', function () {
+        reject(new Error('Upload fehlgeschlagen'));
+      });
+      xhr.open('POST', '/api/files/upload');
+      xhr.send(form);
+    });
+  }
+
+  function uploadFiles(fileList) {
+    if (!fileList || !fileList.length || readOnly) return;
+    var files = Array.prototype.slice.call(fileList);
+    var total = files.length;
+    progressEl.hidden = false;
+    progressBar.style.width = '0%';
+
+    var chain = Promise.resolve();
+    files.forEach(function (file, index) {
+      chain = chain.then(function () {
+        progressBar.style.width = '0%';
+        return uploadOne(file, index, total);
+      });
+    });
+
+    chain
+      .then(function () {
+        showToast('Upload abgeschlossen.', 'success');
+        loadBrowse(currentPath);
+      })
+      .catch(showApiError)
+      .finally(function () {
+        progressEl.hidden = true;
+        progressBar.style.width = '0%';
+        progressText.textContent = '';
+      });
   }
 
   shareSelect.addEventListener('change', function () {
@@ -287,14 +326,23 @@
 
   mkdirBtn.addEventListener('click', function () {
     if (readOnly) return;
-    var name = window.prompt('Name des neuen Ordners:');
-    if (!name) return;
-    apiPost('/api/files/mkdir', { share: currentShare, path: currentPath, name: name })
-      .then(function () {
-        showToast('Ordner erstellt.', 'success');
-        loadBrowse(currentPath);
-      })
-      .catch(showApiError);
+    window.SambaUI.prompt({
+      title: 'Neuer Ordner',
+      label: 'Ordnername',
+      okLabel: 'Erstellen',
+    }).then(function (name) {
+      if (!name) return;
+      if (/[\/\\]/.test(name) || name === '.' || name === '..') {
+        showToast('Ungültiger Ordnername.', 'error');
+        return;
+      }
+      apiPost('/api/files/mkdir', { share: currentShare, path: currentPath, name: name })
+        .then(function () {
+          showToast('Ordner erstellt.', 'success');
+          loadBrowse(currentPath);
+        })
+        .catch(showApiError);
+    });
   });
 
   refreshBtn.addEventListener('click', function () { loadBrowse(currentPath); });

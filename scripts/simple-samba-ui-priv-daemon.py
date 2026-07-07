@@ -644,7 +644,13 @@ def cmd_files_commit_upload(body_text: str) -> tuple[bool, str]:
     if not parent.is_dir():
         return False, "Zielverzeichnis existiert nicht."
 
-    dest = parent / staging.name
+    filename = str(data.get("filename", "")).strip()
+    if not filename:
+        return False, "filename erforderlich."
+    if "/" in filename or "\\" in filename or filename in (".", ".."):
+        return False, "Ungültiger Dateiname."
+
+    dest = parent / filename
     if dest.exists():
         return False, f"Datei existiert bereits: {dest.name}"
 
@@ -1339,7 +1345,16 @@ def verify_runtime() -> None:
         sys.exit(1)
 
 
+def _serve_client(conn: socket.socket) -> None:
+    try:
+        handle_client(conn)
+    finally:
+        conn.close()
+
+
 def main() -> None:
+    import threading
+
     verify_runtime()
     log(f"Basisverzeichnis Freigaben: {get_shares_base()}")
 
@@ -1362,10 +1377,7 @@ def main() -> None:
     try:
         while True:
             conn, _ = server.accept()
-            try:
-                handle_client(conn)
-            finally:
-                conn.close()
+            threading.Thread(target=_serve_client, args=(conn,), daemon=True).start()
     except KeyboardInterrupt:
         pass
     finally:

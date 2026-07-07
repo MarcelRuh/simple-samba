@@ -91,5 +91,5 @@ else
 fi
 
 export SIMPLE_SAMBA_NONINTERACTIVE="${SIMPLE_SAMBA_NONINTERACTIVE:-1}"
-export SIMPLE_SAMBA_BIND_HOST="${SIMPLE_SAMBA_BIND_HOST:-0.0.0.0}"
+# Ohne SIMPLE_SAMBA_BIND_HOST: Install nutzt automatisch die LAN-IP
 exec bash "${CLONE_DIR}/install.sh"

@@ -208,6 +208,12 @@ code {
   color: var(--text-secondary);
 }
 
+.topbar-logout {
+  display: none;
+  margin: 0;
+  flex-shrink: 0;
+}
+
 .container {
   max-width: 1200px;
   width: 100%;
@@ -1142,6 +1148,8 @@ pre.output {
 
   .sidebar-footer { display: none; }
 
+  .topbar-logout { display: flex; }
+
   .main-content { margin-left: 0; }
 
   .app-shell { flex-direction: column; }
@@ -1248,4 +1256,35 @@ pre.output {
 
 .files-up-btn {
   font-weight: 600;
+}
+
+.files-upload-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.files-upload-progress-track {
+  height: 6px;
+  background: var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.files-upload-progress-bar {
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+  transition: width 0.15s ease;
+}
+
+.ui-prompt-input {
+  width: 100%;
+  margin-top: 0.35rem;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  color: var(--text);
+  font: inherit;
 }

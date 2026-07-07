@@ -81,3 +81,13 @@ def attempt_login(username: str, password: str) -> bool:
     if username != config.get("admin_username", "admin"):
         return False
     return verify_password(password, config["admin_password_hash"])
+
+
+def safe_redirect_target(next_url: str | None, default: str) -> str:
+    """Erlaubt nur relative Pfade ohne Open-Redirect (z. B. //evil.example)."""
+    if not next_url:
+        return default
+    target = next_url.strip()
+    if not target.startswith("/") or target.startswith("//") or target.startswith("/\\"):
+        return default
+    return target

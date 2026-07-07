@@ -15,6 +15,7 @@ from app.auth import (
     login_required,
     login_user,
     logout_user,
+    safe_redirect_target,
     verify_password,
 )
 from app.config import load_config, save_config
@@ -72,6 +73,7 @@ from app.validators import (
 )
 
 FILE_STAGING_DIR = "/var/lib/samba-ui/file-staging"
+INITIAL_PASSWORD_FILE = "/etc/simple-samba-ui/initial-password.txt"
 
 
 def create_app() -> Flask:
@@ -87,6 +89,16 @@ def create_app() -> Flask:
             return
         validate_csrf_token()
 
+    @app.after_request
+    def _security_headers(response):
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'"
+        )
+        return response
+
     @app.context_processor
     def inject_globals():
         from app import __version__
@@ -94,12 +106,6 @@ def create_app() -> Flask:
             cfg = load_config()
         except Exception:
             cfg = {}
-        app_update = None
-        if cfg:
-            try:
-                app_update = get_app_update_info(cfg, __version__)
-            except Exception:
-                app_update = None
         access_host = resolve_access_host(str(cfg.get("bind_host", "0.0.0.0"))) if cfg else "127.0.0.1"
         return {
             "app_name": "Simple Samba UI",
@@ -107,7 +113,7 @@ def create_app() -> Flask:
             "config": cfg,
             "access_host": access_host,
             "csrf_token": get_csrf_token,
-            "app_update": app_update,
+            "app_update": None,
         }
 
   # --- Auth ---
@@ -129,9 +135,7 @@ def create_app() -> Flask:
                 if attempt_login(username, password):
                     clear_login_attempts(client_ip)
                     login_user(username)
-                    next_url = request.args.get("next") or url_for("index")
-                    if not next_url.startswith("/"):
-                        next_url = url_for("index")
+                    next_url = safe_redirect_target(request.args.get("next"), url_for("index"))
                     return redirect(next_url)
                 record_failed_login(client_ip)
                 locked, wait_seconds = is_login_locked(client_ip)
@@ -156,6 +160,7 @@ def create_app() -> Flask:
     def change_password():
         error = None
         success = None
+        initial_password_exists = os.path.isfile(INITIAL_PASSWORD_FILE)
         if request.method == "POST":
             current = request.form.get("current_password") or ""
             new_pw = request.form.get("new_password") or ""
@@ -170,18 +175,35 @@ def create_app() -> Flask:
                     validate_password(new_pw, "Neues Passwort")
                     config["admin_password_hash"] = hash_password(new_pw)
                     save_config(config)
+                    try:
+                        os.unlink(INITIAL_PASSWORD_FILE)
+                        initial_password_exists = False
+                    except OSError:
+                        pass
                     success = "Admin-Passwort wurde geändert."
                 except ValidationError as exc:
                     error = str(exc)
-        return render_template("change_password.html", error=error, success=success)
+        return render_template(
+            "change_password.html",
+            error=error,
+            success=success,
+            initial_password_exists=initial_password_exists,
+        )
 
   # --- Dashboard ---
 
     @app.route("/")
     @login_required
     def index():
+        from app import __version__
+
         config = load_config()
         overview, overview_error = get_overview_safe()
+        app_update = None
+        try:
+            app_update = get_app_update_info(config, __version__)
+        except Exception:
+            app_update = None
         try:
             shares = read_shares(config["samba_shares_file"])
             status = service_status()
@@ -198,6 +220,7 @@ def create_app() -> Flask:
             overview_error=overview_error,
             format_bytes=format_bytes,
             format_uptime=format_uptime,
+            app_update=app_update,
         )
 
   # --- Shares ---
@@ -481,7 +504,7 @@ def create_app() -> Flask:
         try:
             uploaded.save(staging)
             os.chmod(staging, 0o640)
-            commit_upload(share_name, rel_path, staging)
+            commit_upload(share_name, rel_path, staging, filename)
             return jsonify({"ok": True, "name": filename})
         except (ValidationError, FileBrowserError) as exc:
             return jsonify({"error": str(exc)}), 400

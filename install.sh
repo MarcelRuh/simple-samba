@@ -8,7 +8,7 @@ source "${SCRIPT_DIR}/scripts/install-common.sh"
 
 ADMIN_USER="admin"
 SHARES_BASE="${SIMPLE_SAMBA_SHARES_BASE:-/srv/shares}"
-BIND_HOST="${SIMPLE_SAMBA_BIND_HOST:-0.0.0.0}"
+BIND_HOST="${SIMPLE_SAMBA_BIND_HOST:-}"
 BIND_PORT="${SIMPLE_SAMBA_BIND_PORT:-8080}"
 UPGRADE=false
 
@@ -33,7 +33,7 @@ fi
 echo ""
 echo "========================================"
 echo "  Simple Samba UI v${APP_VERSION}"
-echo "  Installation für Debian 13"
+echo "  Installation für Debian 12/13"
 echo "========================================"
 echo ""
 
@@ -50,15 +50,25 @@ if _is_interactive; then
     read -rp "Basisverzeichnis für Freigaben [${SHARES_BASE}]: " input_base
     SHARES_BASE="${input_base:-${SHARES_BASE}}"
 
-    read -rp "Bind-Host [${BIND_HOST}] (0.0.0.0 = alle Interfaces, erreichbar unter ${local_default_host}): " input_host
-    BIND_HOST="${input_host:-${BIND_HOST}}"
+    BIND_HOST="$(prompt_bind_host "${local_default_host}")"
+    while ! BIND_HOST="$(validate_bind_host_value "${BIND_HOST}" "${SCRIPT_DIR}")"; do
+        warn "Ungültige Bind-Adresse."
+        BIND_HOST="$(prompt_bind_host "${local_default_host}")"
+    done
 
     read -rp "Bind-Port [${BIND_PORT}]: " input_port
     BIND_PORT="${input_port:-${BIND_PORT}}"
 else
-    info "Nicht-interaktiv – lauscht auf allen Interfaces (0.0.0.0)."
+    if [[ -z "${BIND_HOST}" ]]; then
+        BIND_HOST="$(detect_primary_ipv4)"
+        info "Nicht-interaktiv – lauscht auf LAN-IP ${BIND_HOST}."
+    else
+        info "Nicht-interaktiv – Bind-Host: ${BIND_HOST}."
+    fi
     SHARES_BASE="${SIMPLE_SAMBA_SHARES_BASE:-${SHARES_BASE}}"
-    BIND_HOST="${SIMPLE_SAMBA_BIND_HOST:-${BIND_HOST}}"
+    if ! BIND_HOST="$(validate_bind_host_value "${BIND_HOST}" "${SCRIPT_DIR}")"; then
+        error "Ungültiger SIMPLE_SAMBA_BIND_HOST: ${SIMPLE_SAMBA_BIND_HOST}"
+    fi
     BIND_PORT="${SIMPLE_SAMBA_BIND_PORT:-${BIND_PORT}}"
 fi
 

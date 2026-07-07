@@ -52,6 +52,45 @@
     });
   }
 
+  function openPrompt(options) {
+    options = options || {};
+    if (!modalEl) return Promise.resolve(null);
+
+    modalTitle.textContent = options.title || 'Eingabe';
+    modalBody.innerHTML = '';
+    var label = document.createElement('label');
+    label.className = 'form-group';
+    label.textContent = options.label || '';
+    var input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'ui-prompt-input';
+    input.value = options.defaultValue || '';
+    input.autocomplete = 'off';
+    label.appendChild(input);
+    modalBody.appendChild(label);
+
+    modalOk.textContent = options.okLabel || 'OK';
+    modalCancel.textContent = options.cancelLabel || 'Abbrechen';
+    modalOk.className = 'btn btn-primary';
+
+    modalEl.hidden = false;
+    modalEl.setAttribute('aria-hidden', 'false');
+    document.body.classList.add('modal-open');
+
+    return new Promise(function (resolve) {
+      modalResolve = function (ok) {
+        resolve(ok ? input.value.trim() : null);
+      };
+      input.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          closeModal(true);
+        }
+      });
+      setTimeout(function () { input.focus(); }, 0);
+    });
+  }
+
   function closeModal(result) {
     if (!modalEl || modalEl.hidden) return;
     modalEl.hidden = true;
@@ -124,6 +163,7 @@
 
   window.SambaUI = {
     confirm: openModal,
+    prompt: openPrompt,
     csrfToken: function () {
       var meta = document.querySelector('meta[name="csrf-token"]');
       return meta ? meta.getAttribute('content') : '';
