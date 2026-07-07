@@ -768,6 +768,7 @@
 
   function loadBrowse(path) {
     currentPath = path || '';
+    createdDirCache = {};
     setLoading(true);
     emptyEl.hidden = true;
     gridEl.hidden = true;
@@ -793,35 +794,56 @@
       .finally(function () { setLoading(false); });
   }
 
-  function uploadOne(file, index, total, targetPath) {
+  function basenameRel(relPath) {
+    var parts = (relPath || '').replace(/\\/g, '/').split('/').filter(Boolean);
+    return parts.length ? parts[parts.length - 1] : '';
+  }
+
+  function normalizeUploadFile(file, nameHint) {
+    if (!file) return null;
+    var name = basenameRel(nameHint || file.name || '');
+    if (!name) return null;
+    if (file.name === name) return file;
+    return new File([file], name, {
+      type: file.type || 'application/octet-stream',
+      lastModified: file.lastModified || Date.now(),
+    });
+  }
+
+  function uploadOne(file, index, total, targetPath, displayName) {
     var uploadPath = targetPath !== undefined ? targetPath : currentPath;
+    var fileName = displayName || file.name || 'upload.bin';
     return new Promise(function (resolve, reject) {
       var xhr = new XMLHttpRequest();
       var form = new FormData();
       form.append('csrf_token', csrfToken());
       form.append('share', currentShare);
       form.append('path', uploadPath);
-      form.append('file', file, file.name);
+      form.append('file', file, fileName);
 
       xhr.upload.addEventListener('progress', function (e) {
         if (e.lengthComputable) {
           var pct = Math.round((e.loaded / e.total) * 100);
           progressBar.style.width = pct + '%';
           progressText.textContent =
-            'Upload ' + (index + 1) + '/' + total + ': ' + file.name + ' (' + pct + '%)';
+            'Upload ' + (index + 1) + '/' + total + ': ' + fileName + ' (' + pct + '%)';
         } else {
           progressText.textContent =
-            'Upload ' + (index + 1) + '/' + total + ': ' + file.name + ' …';
+            'Upload ' + (index + 1) + '/' + total + ': ' + fileName + ' …';
         }
       });
 
       xhr.addEventListener('load', function () {
-        var data;
-        try {
-          data = JSON.parse(xhr.responseText);
-        } catch (e) {
-          reject(new Error('Upload fehlgeschlagen'));
-          return;
+        var data = {};
+        if (xhr.responseText) {
+          try {
+            data = JSON.parse(xhr.responseText);
+          } catch (e) {
+            if (xhr.status >= 400) {
+              reject(new Error('Upload fehlgeschlagen (HTTP ' + xhr.status + ')'));
+              return;
+            }
+          }
         }
         if (xhr.status >= 400) {
           reject(new Error(data.error || 'Upload fehlgeschlagen'));
@@ -848,13 +870,21 @@
     return currentPath ? currentPath + '/' + relDir : relDir;
   }
 
+  var createdDirCache = {};
+
   function ensureRelativeDirs(relDir) {
     if (!relDir) return Promise.resolve();
+    if (createdDirCache[relDir]) return Promise.resolve();
     var parts = relDir.split('/').filter(Boolean);
     var chain = Promise.resolve();
     var acc = currentPath;
     parts.forEach(function (part) {
       chain = chain.then(function () {
+        var cacheKey = acc ? acc + '/' + part : part;
+        if (createdDirCache[cacheKey]) {
+          acc = cacheKey;
+          return;
+        }
         return apiPost('/api/files/mkdir', {
           share: currentShare,
           path: acc,
@@ -862,12 +892,15 @@
         }).catch(function (err) {
           var msg = (err && err.message) ? err.message : '';
           if (msg.indexOf('existiert bereits') === -1) throw err;
+        }).then(function () {
+          createdDirCache[cacheKey] = true;
+          acc = cacheKey;
         });
-      }).then(function () {
-        acc = acc ? acc + '/' + part : part;
       });
     });
-    return chain;
+    return chain.then(function () {
+      createdDirCache[relDir] = true;
+    });
   }
 
   function readDirectory(dirEntry, prefix) {
@@ -887,9 +920,15 @@
               if (entry.isFile) {
                 return new Promise(function (res, rej) {
                   entry.file(function (file) {
+                    var relPath = prefix + '/' + entry.name;
+                    var normalized = normalizeUploadFile(file, entry.name);
+                    if (!normalized) {
+                      rej(new Error('Datei ohne Namen'));
+                      return;
+                    }
                     collected.push({
-                      file: file,
-                      relPath: prefix + '/' + file.name,
+                      file: normalized,
+                      relPath: relPath,
                     });
                     res();
                   }, rej);
@@ -914,7 +953,12 @@
     if (entry.isFile) {
       return new Promise(function (resolve, reject) {
         entry.file(function (file) {
-          resolve([{ file: file, relPath: file.name }]);
+          var normalized = normalizeUploadFile(file, entry.name);
+          if (!normalized) {
+            reject(new Error('Datei ohne Namen'));
+            return;
+          }
+          resolve([{ file: normalized, relPath: entry.name || normalized.name }]);
         }, reject);
       });
     }
@@ -927,29 +971,49 @@
   function collectDroppedFiles(dataTransfer) {
     if (!dataTransfer) return Promise.resolve([]);
 
+    var collected = [];
     var items = dataTransfer.items;
     if (items && items.length) {
       var entries = [];
       for (var i = 0; i < items.length; i++) {
         if (items[i].kind !== 'file') continue;
-        var entry = items[i].webkitGetAsEntry && items[i].webkitGetAsEntry();
-        if (entry) entries.push(entry);
+        var entry = null;
+        if (items[i].webkitGetAsEntry) {
+          entry = items[i].webkitGetAsEntry();
+        }
+        if (entry) {
+          entries.push(entry);
+          continue;
+        }
+        if (items[i].getAsFile) {
+          var directFile = items[i].getAsFile();
+          if (directFile) {
+            var normalized = normalizeUploadFile(directFile, directFile.name);
+            if (normalized) {
+              collected.push({ file: normalized, relPath: normalized.name });
+            }
+          }
+        }
       }
       if (entries.length) {
         return Promise.all(entries.map(processDroppedEntry)).then(function (groups) {
-          var flat = [];
+          var flat = collected.slice();
           groups.forEach(function (group) {
             flat = flat.concat(group);
           });
           return flat;
         });
       }
+      if (collected.length) {
+        return Promise.resolve(collected);
+      }
     }
 
     var files = dataTransfer.files ? Array.prototype.slice.call(dataTransfer.files) : [];
     return Promise.resolve(files.map(function (file) {
-      return { file: file, relPath: file.name };
-    }));
+      var normalized = normalizeUploadFile(file, file.name);
+      return normalized ? { file: normalized, relPath: normalized.name } : null;
+    }).filter(Boolean));
   }
 
   function setDropActive(active) {
@@ -987,9 +1051,15 @@
         var relPath = (item.relPath || item.file.name || '').replace(/\\/g, '/');
         var relDir = dirnameRel(relPath);
         return ensureRelativeDirs(relDir).then(function () {
+          var uploadName = basenameRel(relPath);
+          var normalized = normalizeUploadFile(item.file, uploadName);
+          if (!normalized) {
+            throw new Error('Datei ohne Namen');
+          }
           prepared.push({
-            file: item.file,
+            file: normalized,
             path: joinCurrentPath(relDir),
+            name: uploadName || normalized.name,
           });
         });
       });
@@ -1001,7 +1071,7 @@
         prepared.forEach(function (entry, index) {
           uploadChain = uploadChain.then(function () {
             progressBar.style.width = '0%';
-            return uploadOne(entry.file, index, total, entry.path);
+            return uploadOne(entry.file, index, total, entry.path, entry.name);
           });
         });
         return uploadChain;
@@ -1030,39 +1100,52 @@
   }
 
   function initDragAndDrop() {
-    if (!contentEl) return;
+    var dropZone = document.querySelector('.files-main') || contentEl;
+    if (!dropZone) return;
 
-    contentEl.addEventListener('dragenter', function (e) {
-      if (readOnly || uploadBusy) return;
+    function canAcceptDrop() {
+      return !readOnly && !uploadBusy;
+    }
+
+    dropZone.addEventListener('dragenter', function (e) {
+      if (!canAcceptDrop()) return;
       e.preventDefault();
       dragDepth += 1;
       setDropActive(true);
     });
 
-    contentEl.addEventListener('dragover', function (e) {
-      if (readOnly || uploadBusy) return;
+    dropZone.addEventListener('dragover', function (e) {
+      if (!canAcceptDrop()) return;
       e.preventDefault();
       if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
     });
 
-    contentEl.addEventListener('dragleave', function (e) {
+    dropZone.addEventListener('dragleave', function (e) {
       if (readOnly) return;
       e.preventDefault();
       dragDepth = Math.max(0, dragDepth - 1);
       if (dragDepth === 0) setDropActive(false);
     });
 
-    contentEl.addEventListener('drop', function (e) {
+    dropZone.addEventListener('drop', function (e) {
       e.preventDefault();
       dragDepth = 0;
       setDropActive(false);
-      if (readOnly || uploadBusy) return;
+      if (!canAcceptDrop()) return;
       collectDroppedFiles(e.dataTransfer)
         .then(function (items) {
-          if (!items.length) return;
+          if (!items.length) {
+            if (window.showToast) showToast('Keine Dateien zum Hochladen erkannt.', 'error');
+            return;
+          }
           uploadFileItems(items);
         })
         .catch(showApiError);
+    });
+
+    document.addEventListener('dragover', function (e) {
+      if (!dropZone.contains(e.target)) return;
+      e.preventDefault();
     });
   }
 
