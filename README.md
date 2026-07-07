@@ -2,7 +2,7 @@
 
 Interne Web-Verwaltung für Samba-Freigaben auf Debian – klein, ohne Reverse Proxy, ohne nginx/Caddy/Apache.
 
-**Aktuelle Version:** v1.9.1
+**Aktuelle Version:** v1.12.2
 
 ## Screenshots
 
@@ -27,7 +27,9 @@ Interne Web-Verwaltung für Samba-Freigaben auf Debian – klein, ohne Reverse P
 - Dashboard mit Speicher, Updates und Neustart-Status
 - **App-Update-Hinweis** – prüft GitHub auf neuere Versionen (Cache: 6 h)
 - **App-Update-Button** – GitHub-Update direkt aus der UI
-- **Datei-Explorer** – Dateien in Freigaben durchsuchen, hoch- und herunterladen
+- **Datei-Explorer** – Dateien in Freigaben durchsuchen, hoch- und herunterladen (mit Fortschritt & Abbruch)
+- Ordner-Download als **Streaming-ZIP** (HTTP) oder direkt in Zielordner (HTTPS)
+- Downloads **direkt aus Freigaben** ohne Kopie auf die Systemplatte
 - CSRF-Schutz & Login-Rate-Limiting
 - Privilege-Daemon über Unix-Socket (kein sudo)
 
@@ -186,6 +188,12 @@ Nach Installation:
 - Kein TLS eingebaut – bei Bedarf SSH-Tunnel nutzen
 - Nach Installation: Admin-Passwort ändern, `initial-password.txt` löschen
 - Nicht ungefiltert ins Internet stellen
+- Temporäre Upload-/Download-Dateien werden automatisch bereinigt (älter als 1 Stunde)
+
+## Wartung
+
+Der Privilege-Daemon räumt beim Start und stündlich verwaiste Dateien unter
+`/var/lib/samba-ui/file-staging` und `/var/lib/samba-ui/download-jobs` auf.
 
 ## Lizenz
 

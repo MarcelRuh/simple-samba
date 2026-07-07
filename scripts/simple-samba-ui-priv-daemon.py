@@ -70,6 +70,8 @@ DEFAULT_SOURCE_CLONE_DIR = Path("/usr/local/src/simple-samba")
 DEFAULT_GITHUB_REPO = "MarcelRuh/simple-samba"
 DEFAULT_GITHUB_BRANCH = "main"
 _apt_job_lock = threading.Lock()
+_app_update_job_lock = threading.Lock()
+STAGING_MAX_AGE_SECONDS = 3600
 PHASE_LABELS = {
     "start": "Wird gestartet …",
     "update": "Paketlisten aktualisieren",
@@ -713,6 +715,78 @@ def _cleanup_download_staging(job_id: str, staging: Path | None = None) -> None:
             path.unlink(missing_ok=True)
     except OSError:
         pass
+
+
+def cleanup_stale_staging(max_age_seconds: int = STAGING_MAX_AGE_SECONDS) -> tuple[int, int]:
+    """Entfernt veraltete Staging-Dateien und Download-Job-Metadaten."""
+    now = time.time()
+    staging_removed = 0
+    jobs_removed = 0
+
+    try:
+        _ensure_file_staging_dir()
+        for path in FILE_STAGING_DIR.iterdir():
+            if not path.is_file():
+                continue
+            try:
+                if now - path.stat().st_mtime > max_age_seconds:
+                    path.unlink(missing_ok=True)
+                    staging_removed += 1
+            except OSError:
+                pass
+    except OSError:
+        pass
+
+    try:
+        DOWNLOAD_JOBS_DIR.mkdir(parents=True, exist_ok=True, mode=0o750)
+        for path in DOWNLOAD_JOBS_DIR.glob("*.json"):
+            try:
+                if now - path.stat().st_mtime <= max_age_seconds:
+                    continue
+                data = _read_download_job(path.stem)
+                if data and not data.get("direct"):
+                    staging = data.get("staging")
+                    if staging:
+                        Path(staging).unlink(missing_ok=True)
+                    _cleanup_download_staging(path.stem)
+                path.unlink(missing_ok=True)
+                jobs_removed += 1
+            except OSError:
+                pass
+    except OSError:
+        pass
+
+    return staging_removed, jobs_removed
+
+
+def cmd_cleanup_staging(arg: str) -> tuple[bool, str]:
+    max_age = STAGING_MAX_AGE_SECONDS
+    if (arg or "").strip():
+        try:
+            max_age = max(60, int(arg.strip()))
+        except ValueError:
+            return False, "Ungültiges Alter in Sekunden."
+    staging_removed, jobs_removed = cleanup_stale_staging(max_age)
+    payload = {
+        "staging_removed": staging_removed,
+        "jobs_removed": jobs_removed,
+        "max_age_seconds": max_age,
+    }
+    return True, json.dumps(payload, ensure_ascii=False)
+
+
+def _staging_cleanup_loop() -> None:
+    while True:
+        time.sleep(STAGING_MAX_AGE_SECONDS)
+        try:
+            staging_removed, jobs_removed = cleanup_stale_staging()
+            if staging_removed or jobs_removed:
+                log(
+                    f"Staging-Cleanup: {staging_removed} Datei(en), "
+                    f"{jobs_removed} Job(s) entfernt."
+                )
+        except Exception as exc:
+            log(f"Staging-Cleanup fehlgeschlagen: {exc}")
 
 
 def _abort_if_cancelled(job_id: str, staging: Path | None = None) -> bool:
@@ -1520,6 +1594,7 @@ def handle_request(line: str, body: bytes) -> tuple[bool, str]:
         "files-download-status": lambda: cmd_files_download_status(arg),
         "files-download-cancel": lambda: cmd_files_download_cancel(arg),
         "files-download-cleanup": lambda: cmd_files_download_cleanup(arg),
+        "files-cleanup-staging": lambda: cmd_cleanup_staging(arg),
         "files-commit-upload": lambda: cmd_files_commit_upload(body_text),
     }
 
@@ -1598,6 +1673,18 @@ def main() -> None:
 
     verify_runtime()
     log(f"Basisverzeichnis Freigaben: {get_shares_base()}")
+
+    try:
+        staging_removed, jobs_removed = cleanup_stale_staging()
+        if staging_removed or jobs_removed:
+            log(
+                f"Staging-Cleanup beim Start: {staging_removed} Datei(en), "
+                f"{jobs_removed} Job(s) entfernt."
+            )
+    except Exception as exc:
+        log(f"Staging-Cleanup beim Start fehlgeschlagen: {exc}")
+
+    threading.Thread(target=_staging_cleanup_loop, daemon=True).start()
 
     SOCKET_PATH.parent.mkdir(parents=True, exist_ok=True)
     if SOCKET_PATH.exists():

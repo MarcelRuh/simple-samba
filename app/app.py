@@ -123,13 +123,19 @@ def create_app() -> Flask:
         except Exception:
             cfg = {}
         access_host = resolve_access_host(str(cfg.get("bind_host", "0.0.0.0"))) if cfg else "127.0.0.1"
+        app_update = None
+        if is_authenticated():
+            try:
+                app_update = get_app_update_info(cfg, __version__)
+            except Exception:
+                app_update = None
         return {
             "app_name": "Simple Samba UI",
             "app_version": __version__,
             "config": cfg,
             "access_host": access_host,
             "csrf_token": get_csrf_token,
-            "app_update": None,
+            "app_update": app_update,
         }
 
   # --- Auth ---
@@ -211,15 +217,8 @@ def create_app() -> Flask:
     @app.route("/")
     @login_required
     def index():
-        from app import __version__
-
         config = load_config()
         overview, overview_error = get_overview_safe()
-        app_update = None
-        try:
-            app_update = get_app_update_info(config, __version__)
-        except Exception:
-            app_update = None
         try:
             shares = read_shares(config["samba_shares_file"])
             status = service_status()
@@ -236,7 +235,6 @@ def create_app() -> Flask:
             overview_error=overview_error,
             format_bytes=format_bytes,
             format_uptime=format_uptime,
-            app_update=app_update,
         )
 
   # --- Shares ---
