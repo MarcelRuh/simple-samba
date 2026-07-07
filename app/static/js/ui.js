@@ -161,14 +161,46 @@
     });
   }
 
+  function showToast(message, type) {
+    var stack = document.querySelector('.toast-stack');
+    if (!stack) {
+      stack = document.createElement('div');
+      stack.className = 'toast-stack';
+      stack.setAttribute('role', 'status');
+      var main = document.querySelector('.container');
+      if (main) main.insertBefore(stack, main.firstChild);
+    }
+    var toast = document.createElement('div');
+    toast.className = 'toast ' + (type || 'success');
+    toast.setAttribute('data-toast', '');
+    toast.innerHTML =
+      '<span class="toast-icon" aria-hidden="true">' + (type === 'error' ? '!' : '✓') + '</span>' +
+      '<span class="toast-message"></span>' +
+      '<button type="button" class="toast-close" aria-label="Schließen">×</button>';
+    toast.querySelector('.toast-message').textContent = message;
+    stack.appendChild(toast);
+    var closeBtn = toast.querySelector('.toast-close');
+    if (closeBtn) {
+      closeBtn.addEventListener('click', function () {
+        toast.remove();
+      });
+    }
+    setTimeout(function () {
+      if (toast.isConnected) toast.remove();
+    }, 8000);
+  }
+
   window.SambaUI = {
     confirm: openModal,
     prompt: openPrompt,
+    toast: showToast,
     csrfToken: function () {
       var meta = document.querySelector('meta[name="csrf-token"]');
       return meta ? meta.getAttribute('content') : '';
     },
   };
+
+  window.showToast = showToast;
 
   document.addEventListener('DOMContentLoaded', function () {
     initModal();
