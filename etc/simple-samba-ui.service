@@ -11,7 +11,7 @@ Group=samba-ui
 WorkingDirectory=/opt/simple-samba-ui
 Environment=PYTHONUNBUFFERED=1
 Environment=SAMBA_UI_SHARES_BASE=@SHARES_BASE@
-ExecStart=/opt/simple-samba-ui/venv/bin/gunicorn -c /opt/simple-samba-ui/gunicorn.conf.py wsgi:app
+ExecStart=/opt/simple-samba-ui/scripts/start-web.sh
 Restart=on-failure
 RestartSec=5
 NoNewPrivileges=true

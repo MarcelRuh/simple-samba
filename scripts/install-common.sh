@@ -236,6 +236,21 @@ ensure_tls_certificates() {
     chmod 644 "${cert}"
 }
 
+ensure_https_defaults() {
+    if [[ ! -f "${CONFIG_FILE}" ]]; then
+        return 0
+    fi
+    info "HTTPS-Standard prüfen …"
+    local py="${INSTALL_DIR}/venv/bin/python3"
+    [[ -x "${py}" ]] || py=python3
+    local migrate="${INSTALL_DIR}/scripts/migrate-https-config.py"
+    [[ -f "${migrate}" ]] || migrate="${_INSTALL_COMMON_DIR}/scripts/migrate-https-config.py"
+    "${py}" "${migrate}" || true
+    ensure_tls_certificates
+    chown samba-ui:samba-ui "${CONFIG_FILE}" 2>/dev/null || true
+    chmod 600 "${CONFIG_FILE}"
+}
+
 set_permissions() {
     info "Setze Berechtigungen …"
     chown -R samba-ui:samba-ui "${INSTALL_DIR}"
@@ -244,6 +259,9 @@ set_permissions() {
     chmod 755 "${INSTALL_DIR}/scripts/run-app-update.py" 2>/dev/null || true
     chmod 755 "${INSTALL_DIR}/scripts/bootstrap-import-shares.py" 2>/dev/null || true
     chmod 755 "${INSTALL_DIR}/scripts/enable-tls.sh" 2>/dev/null || true
+    chmod 755 "${INSTALL_DIR}/scripts/start-web.sh" 2>/dev/null || true
+    chmod 755 "${INSTALL_DIR}/scripts/http-redirect-server.py" 2>/dev/null || true
+    chmod 755 "${INSTALL_DIR}/scripts/migrate-https-config.py" 2>/dev/null || true
     mkdir -p "${CONFIG_DIR}" "${BACKUP_DIR}"
     chown -R samba-ui:samba-ui "${CONFIG_DIR}"
     chmod 750 "${CONFIG_DIR}"
@@ -394,17 +412,12 @@ write_initial_config() {
     local shares_base="$3"
     local bind_host="$4"
     local bind_port="$5"
-    local tls_enabled="${6:-false}"
+    local http_port="${6:-8080}"
     local session_secret password_hash
 
     session_secret="$(openssl rand -hex 32)"
     password_hash="$(generate_bcrypt_hash "${admin_password}")"
-    if [[ "${tls_enabled}" == "true" ]]; then
-        ensure_tls_certificates
-        tls_py="True"
-    else
-        tls_py="False"
-    fi
+    ensure_tls_certificates
 
     mkdir -p "${CONFIG_DIR}"
     python3 - <<PY
@@ -414,13 +427,14 @@ from pathlib import Path
 cfg = {
     "bind_host": "${bind_host}",
     "bind_port": int("${bind_port}"),
+    "http_port": int("${http_port}"),
     "shares_base_path": "${shares_base}",
     "samba_shares_file": "${SAMBA_SHARES_FILE}",
     "admin_username": "${admin_user}",
     "admin_password_hash": """${password_hash}""",
     "session_secret": "${session_secret}",
     "session_lifetime_hours": 8,
-    "tls_enabled": ${tls_py},
+    "tls_enabled": True,
     "tls_cert_file": "${CONFIG_DIR}/tls/server.crt",
     "tls_key_file": "${CONFIG_DIR}/tls/server.key",
 }

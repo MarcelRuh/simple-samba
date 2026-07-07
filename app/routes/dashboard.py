@@ -13,7 +13,6 @@ from app.config import load_config
 from app.security_checks import share_security_warnings
 from app.samba import SambaError, list_samba_users, read_shares, run_testparm, service_status
 from app.system import format_bytes, format_uptime, get_overview_safe, get_smb_status_safe
-from app.tls import is_tls_enabled
 
 INITIAL_PASSWORD_FILE = "/etc/simple-samba-ui/initial-password.txt"
 
@@ -114,15 +113,6 @@ def _dashboard_warnings(
             "(initial-password.txt liegt noch vor).",
             "action_url": url_for("change_password"),
             "action_label": "Passwort ändern",
-        })
-
-    if config and not is_tls_enabled(config):
-        warnings.append({
-            "level": "warn",
-            "message": "Web-UI läuft über HTTP – Ordner-Downloads werden als ZIP bereitgestellt. "
-            "HTTPS aktivieren: sudo bash /opt/simple-samba-ui/scripts/enable-tls.sh",
-            "action_url": "",
-            "action_label": "",
         })
 
     for item in share_security_warnings(shares):

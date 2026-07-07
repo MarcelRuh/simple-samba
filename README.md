@@ -29,11 +29,11 @@ Interne Web-Verwaltung für Samba-Freigaben auf Debian – klein, ohne Reverse P
 - **App-Update-Button** – GitHub-Update direkt aus der UI
 - **Datei-Explorer** – Dateien in Freigaben durchsuchen, hoch- und herunterladen (mit Fortschritt & Abbruch)
 - **Ordner-Upload** per Button (`webkitdirectory`)
-- Ordner-Download als **Streaming-ZIP** (HTTP) oder direkt in Zielordner (HTTPS)
-- **HTTPS** optional mit selbstsigniertem Zertifikat (`scripts/enable-tls.sh`)
-- Dashboard mit **Sicherheits-Warnungen** (Gast-Freigaben, fehlende Benutzer, HTTP-Hinweis)
+- Ordner-Download direkt in Zielordner (HTTPS)
+- **HTTPS standardmäßig aktiv** – HTTP leitet per 301 auf HTTPS um (`http_port` → `bind_port`)
+- Dashboard mit **Sicherheits-Warnungen** (Gast-Freigaben, fehlende Benutzer)
 - Downloads **direkt aus Freigaben** ohne Kopie auf die Systemplatte
-- Datei-Explorer: **Sortierung** (Name, Größe, Datum) und Hinweis zu HTTP/ZIP vs. HTTPS
+- Datei-Explorer: **Sortierung** (Name, Größe, Datum)
 - Konfigurierbares **Upload-Limit** (`max_upload_bytes` in `config.json`)
 - CSRF-Schutz
 - Privilege-Daemon über Unix-Socket (kein sudo)
@@ -80,7 +80,7 @@ Das Script klont das Repository nach `/usr/local/src/simple-samba`, installiert 
 
 **Bestehendes Samba:** Freigaben aus `smb.conf` werden automatisch importiert. Liegen Pfade z. B. unter `/srv/raid5` statt `/srv/shares`, wird das Basisverzeichnis entsprechend erkannt und gespeichert.
 
-Die Web-UI ist danach unter der **LAN-IP des Servers** erreichbar (Standard bei Installation: Bind auf die interne IP, z. B. `192.168.x.x:8080`).
+Die Web-UI ist danach unter der **LAN-IP des Servers** erreichbar (Standard: HTTPS auf Port **8443**, HTTP auf **8080** leitet weiter).
 
 Bei interaktiver Installation wählst du die Bind-Adresse:
 
@@ -94,7 +94,8 @@ Am Ende werden **URL, Benutzername und Passwort** ausgegeben.
 
 ```bash
 SIMPLE_SAMBA_BIND_HOST=192.168.178.252 \
-SIMPLE_SAMBA_BIND_PORT=8080 \
+SIMPLE_SAMBA_BIND_PORT=8443 \
+SIMPLE_SAMBA_HTTP_PORT=8080 \
 SIMPLE_SAMBA_SHARES_BASE=/srv/shares \
 wget -qO- https://raw.githubusercontent.com/MarcelRuh/simple-samba/main/bootstrap.sh | bash
 ```
@@ -186,25 +187,32 @@ Nach Installation:
 | `/etc/samba/smb-shares.conf` | Verwaltete Freigaben |
 | `/run/simple-samba-ui/priv.sock` | Privilege-Socket |
 
-## HTTPS (optional)
+## HTTPS (Standard)
 
-Ordner-Downloads im Datei-Explorer nutzen im Browser die **Ordnerstruktur** nur über HTTPS
-(`window.showDirectoryPicker`). Über HTTP werden Ordner als ZIP gestreamt.
+Die Web-UI läuft **standardmäßig nur über HTTPS** (selbstsigniertes Zertifikat). Anfragen auf `http_port` (Standard **8080**) werden per **301** auf `https://<host>:<bind_port>/` umgeleitet (Standard **8443**).
+
+Ordner-Downloads im Datei-Explorer nutzen `window.showDirectoryPicker` und funktionieren damit direkt.
 
 ```bash
+# Nach manueller Änderung oder Migration:
 sudo bash /opt/simple-samba-ui/scripts/enable-tls.sh
-systemctl restart simple-samba-ui
 ```
 
-Erzeugt ein selbstsigniertes Zertifikat unter `/etc/simple-samba-ui/tls/`. Die Browser-Warnung ist bei internem Gebrauch normal.
+Zertifikat: `/etc/simple-samba-ui/tls/`. Die Browser-Warnung ist bei internem Gebrauch normal.
 
-Bei der Erstinstallation kann HTTPS interaktiv aktiviert werden, oder per `SIMPLE_SAMBA_TLS=1`.
+Relevante `config.json`-Felder:
+
+| Feld | Standard | Bedeutung |
+|------|----------|-----------|
+| `tls_enabled` | `true` | HTTPS erforderlich |
+| `bind_port` | `8443` | HTTPS-Port (Gunicorn) |
+| `http_port` | `8080` | HTTP-Redirect-Port |
 
 ## Sicherheit
 
 - Web-UI läuft **nicht als root**
 - Admin-Passwort als **bcrypt-Hash**
-- **HTTPS** optional (siehe oben) – alternativ SSH-Tunnel
+- **HTTPS** standardmäßig aktiv – alternativ SSH-Tunnel auf den HTTPS-Port
 - Dashboard warnt bei Gast-Freigaben und Shares ohne Benutzer
 - Nach Installation: Admin-Passwort ändern, `initial-password.txt` löschen
 - Nicht ungefiltert ins Internet stellen

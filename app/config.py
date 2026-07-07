@@ -14,7 +14,8 @@ DEFAULT_MAX_UPLOAD_BYTES = 512 * 1024 * 1024
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "bind_host": "127.0.0.1",
-    "bind_port": 8080,
+    "bind_port": 8443,
+    "http_port": 8080,
     "shares_base_path": "/srv/shares",
     "samba_shares_file": "/etc/samba/smb-shares.conf",
     "admin_username": "admin",
@@ -27,7 +28,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "update_check_interval_hours": 6,
     "source_clone_dir": "/usr/local/src/simple-samba",
     "max_upload_bytes": DEFAULT_MAX_UPLOAD_BYTES,
-    "tls_enabled": False,
+    "tls_enabled": True,
     "tls_cert_file": "/etc/simple-samba-ui/tls/server.crt",
     "tls_key_file": "/etc/simple-samba-ui/tls/server.key",
 }

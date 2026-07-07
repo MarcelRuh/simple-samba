@@ -1,6 +1,7 @@
 {
   "bind_host": "192.168.178.252",
-  "bind_port": 8080,
+  "bind_port": 8443,
+  "http_port": 8080,
   "shares_base_path": "/srv/shares",
   "samba_shares_file": "/etc/samba/smb-shares.conf",
   "admin_username": "admin",
@@ -13,7 +14,7 @@
   "update_check_interval_hours": 6,
   "source_clone_dir": "/usr/local/src/simple-samba",
   "max_upload_bytes": 536870912,
-  "tls_enabled": false,
+  "tls_enabled": true,
   "tls_cert_file": "/etc/simple-samba-ui/tls/server.crt",
   "tls_key_file": "/etc/simple-samba-ui/tls/server.key"
 }
