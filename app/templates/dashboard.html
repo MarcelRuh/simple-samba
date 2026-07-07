@@ -7,6 +7,22 @@
   <p class="lead">Status von Samba und System – Basis: <code>{{ config.shares_base_path }}</code></p>
 </div>
 
+{% if dashboard_warnings %}
+<div class="dashboard-warnings" role="status" aria-live="polite">
+  {% for warning in dashboard_warnings %}
+  <div class="notice notice-{{ warning.level }} dashboard-warning">
+    <span class="toast-icon" aria-hidden="true">{% if warning.level == 'error' %}!{% else %}⚠{% endif %}</span>
+    <div class="dashboard-warning-body">
+      <span>{{ warning.message }}</span>
+      {% if warning.action_url %}
+      <a href="{{ warning.action_url }}">{{ warning.action_label }}</a>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
 <div class="stats-grid">
   <div class="stat-card {% if status.is_running %}accent{% endif %}">
     <span class="stat-label">Samba-Dienst</span>
@@ -19,10 +35,34 @@
     </span>
     <span class="stat-hint">smbd Status</span>
   </div>
+  <a href="{{ url_for('status_page') }}" class="stat-card stat-card-link {% if config_ok is sameas false %}accent{% endif %}" title="Konfiguration &amp; Dienst">
+    <span class="stat-label">Konfiguration</span>
+    <span class="stat-value">
+      {% if config_ok %}
+        <span class="badge ok">Gültig</span>
+      {% elif config_ok is sameas false %}
+        <span class="badge off">Fehler</span>
+      {% else %}
+        <span class="badge neutral">—</span>
+      {% endif %}
+    </span>
+    <span class="stat-hint">testparm · Klicken für Details</span>
+  </a>
   <a href="{{ url_for('shares_list') }}" class="stat-card stat-card-link" title="Freigaben verwalten">
     <span class="stat-label">Freigaben</span>
     <span class="stat-value">{{ shares_count }}</span>
-    <span class="stat-hint">konfigurierte Shares · Klicken zum Verwalten</span>
+    <span class="stat-hint">
+      {% if shares_count %}
+        {{ shares_active }} aktiv{% if shares_disabled %} · {{ shares_disabled }} deaktiviert{% endif %}
+      {% else %}
+        noch keine Shares angelegt
+      {% endif %}
+    </span>
+  </a>
+  <a href="{{ url_for('users_list') }}" class="stat-card stat-card-link" title="Benutzer verwalten">
+    <span class="stat-label">Benutzer</span>
+    <span class="stat-value">{{ users_count }}</span>
+    <span class="stat-hint">Samba-Konten · Klicken zum Verwalten</span>
   </a>
   {% if overview %}
   <div class="stat-card {% if overview.disk_percent > 85 %}accent{% endif %}">
@@ -32,6 +72,9 @@
       {{ format_bytes(overview.disk_used) }} / {{ format_bytes(overview.disk_total) }}
       {% if overview.disk_path %}<br><code>{{ overview.disk_path }}</code>{% endif %}
     </span>
+    <div class="dashboard-meter" aria-hidden="true">
+      <div class="dashboard-meter-bar" style="width: {{ [overview.disk_percent, 100]|min }}%"></div>
+    </div>
   </div>
   {% set has_updates = overview.upgradable_count > 0 or (app_update and app_update.update_available) %}
   {% if has_updates %}
@@ -89,6 +132,75 @@
   {% endif %}
 </div>
 
+{% if smb_shares %}
+<div class="card">
+  <div class="card-header">
+    <span class="card-title">SMB-Zugriff</span>
+    <span class="hint">In Windows Explorer oder macOS „Mit Server verbinden“</span>
+  </div>
+  <ul class="dashboard-smb-list">
+    {% for share in smb_shares[:8] %}
+    {% set unc = '\\\\' ~ access_host ~ '\\' ~ share.name %}
+    <li class="dashboard-smb-item">
+      <div class="dashboard-smb-meta">
+        <span class="share-name">{{ share.name }}</span>
+        <code class="dashboard-smb-path">{{ unc }}</code>
+      </div>
+      <button type="button" class="btn btn-secondary btn-sm" data-copy="{{ unc }}" title="Pfad kopieren">Kopieren</button>
+    </li>
+    {% endfor %}
+  </ul>
+  {% if smb_shares|length > 8 %}
+  <p class="hint dashboard-smb-more">
+    … und {{ smb_shares|length - 8 }} weitere.
+    <a href="{{ url_for('shares_list') }}">Alle Freigaben anzeigen</a>
+  </p>
+  {% endif %}
+</div>
+{% endif %}
+
+{% if share_preview %}
+<div class="card">
+  <div class="card-header">
+    <span class="card-title">Freigaben (Auszug)</span>
+    <a href="{{ url_for('shares_list') }}" class="btn btn-secondary btn-sm">Alle anzeigen</a>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Pfad</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for share in share_preview %}
+        <tr>
+          <td><span class="share-name">{{ share.name }}</span></td>
+          <td><code>{{ share.path }}</code></td>
+          <td><span class="badge ok">Aktiv</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if shares_count > share_preview|length %}
+  <p class="hint" style="padding:0.75rem 1rem 1rem">
+    {{ shares_count - share_preview|length }} weitere Freigabe(n) in der
+    <a href="{{ url_for('shares_list') }}">vollständigen Liste</a>.
+  </p>
+  {% endif %}
+</div>
+{% elif not shares_count %}
+<div class="card">
+  <div class="empty-state">
+    <p>Noch keine Freigaben angelegt.</p>
+    <a href="{{ url_for('share_new') }}" class="btn btn-primary">Erste Freigabe erstellen</a>
+  </div>
+</div>
+{% endif %}
+
 <div class="card">
   <div class="card-header">
     <span class="card-title">Schnellzugriff</span>
@@ -96,9 +208,49 @@
       <a href="{{ url_for('shares_list') }}" class="btn btn-primary">Freigaben verwalten</a>
       <a href="{{ url_for('share_new') }}" class="btn btn-secondary">+ Neue Freigabe</a>
       <a href="{{ url_for('files_browser') }}" class="btn btn-secondary">Dateien</a>
+      <a href="{{ url_for('users_list') }}" class="btn btn-secondary">Benutzer</a>
       <a href="{{ url_for('status_page') }}" class="btn btn-secondary">Status</a>
       <a href="{{ url_for('system_updates') }}" class="btn btn-secondary">System-Updates</a>
     </div>
   </div>
 </div>
+
+<script>
+(function () {
+  function copyText(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(text);
+    }
+    return new Promise(function (resolve, reject) {
+      var area = document.createElement('textarea');
+      area.value = text;
+      area.setAttribute('readonly', '');
+      area.style.position = 'fixed';
+      area.style.left = '-9999px';
+      document.body.appendChild(area);
+      area.select();
+      try {
+        document.execCommand('copy');
+        resolve();
+      } catch (err) {
+        reject(err);
+      } finally {
+        document.body.removeChild(area);
+      }
+    });
+  }
+
+  document.querySelectorAll('[data-copy]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var value = btn.getAttribute('data-copy') || '';
+      if (!value) return;
+      copyText(value).then(function () {
+        if (window.showToast) showToast('Pfad kopiert.', 'success');
+      }).catch(function () {
+        if (window.showToast) showToast('Kopieren fehlgeschlagen.', 'error');
+      });
+    });
+  });
+})();
+</script>
 {% endblock %}
