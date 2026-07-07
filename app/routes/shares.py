@@ -28,6 +28,17 @@ from app.validators import ValidationError
 
 
 def register(app: Flask) -> None:
+    @app.route("/shares")
+    @login_required
+    def shares_list():
+        config = load_config()
+        try:
+            shares = read_shares(config["samba_shares_file"])
+        except SambaError as exc:
+            flash(str(exc), "error")
+            shares = []
+        return render_template("shares.html", shares=shares, config=config)
+
     @app.route("/shares/new", methods=["GET", "POST"])
     @login_required
     def share_new():
@@ -49,7 +60,7 @@ def register(app: Flask) -> None:
                     f"\\\\{host}\\{share.name} (Samba-Benutzer erforderlich).",
                     "success",
                 )
-                return redirect(url_for("index"))
+                return redirect(url_for("shares_list"))
             except (ValidationError, SambaError) as exc:
                 error = str(exc)
                 share = share_from_form_values(request.form)
@@ -65,7 +76,7 @@ def register(app: Flask) -> None:
         existing = get_share_by_name(shares, share_name)
         if not existing:
             flash("Freigabe nicht gefunden.", "error")
-            return redirect(url_for("index"))
+            return redirect(url_for("shares_list"))
         error = None
         samba_users = load_samba_users_for_form()
         if request.method == "POST":
@@ -78,7 +89,7 @@ def register(app: Flask) -> None:
                 shares.append(updated)
                 write_shares(shares, config["samba_shares_file"], config["shares_base_path"])
                 flash(f"Freigabe „{new_name}“ wurde aktualisiert.", "success")
-                return redirect(url_for("index"))
+                return redirect(url_for("shares_list"))
             except (ValidationError, SambaError) as exc:
                 error = str(exc)
                 existing = share_from_form_values(request.form)
@@ -95,7 +106,7 @@ def register(app: Flask) -> None:
             share = get_share_by_name(shares, share_name)
             if not share:
                 flash("Freigabe nicht gefunden.", "error")
-                return redirect(url_for("index"))
+                return redirect(url_for("shares_list"))
 
             if request.method == "GET":
                 return render_template("share_delete.html", share=share)
@@ -118,7 +129,7 @@ def register(app: Flask) -> None:
                 )
         except (ValidationError, SambaError) as exc:
             flash(str(exc), "error")
-        return redirect(url_for("index"))
+        return redirect(url_for("shares_list"))
 
     @app.route("/freigaben/importieren", methods=["GET", "POST"])
     @login_required
@@ -148,7 +159,7 @@ def register(app: Flask) -> None:
                     f"{len(selected)} Freigabe(n) importiert und in smb-shares.conf übernommen.",
                     "success",
                 )
-                return redirect(url_for("index"))
+                return redirect(url_for("shares_list"))
             except (ValidationError, SambaError) as exc:
                 error = str(exc)
 
@@ -169,11 +180,11 @@ def register(app: Flask) -> None:
             share = get_share_by_name(shares, share_name)
             if not share:
                 flash("Freigabe nicht gefunden.", "error")
-                return redirect(url_for("index"))
+                return redirect(url_for("shares_list"))
             share.enabled = not share.enabled
             write_shares(shares, config["samba_shares_file"], config["shares_base_path"])
             state = "aktiviert" if share.enabled else "deaktiviert"
             flash(f"Freigabe „{share.name}“ wurde {state}.", "success")
         except SambaError as exc:
             flash(str(exc), "error")
-        return redirect(url_for("index"))
+        return redirect(url_for("shares_list"))

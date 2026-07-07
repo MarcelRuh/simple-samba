@@ -5,7 +5,7 @@
 {% block content %}
 {% if not shares %}
 <div class="card">
-  <p class="hint" style="margin:0">Keine aktiven Freigaben vorhanden. Zuerst eine <a href="{{ url_for('index') }}">Freigabe anlegen</a>.</p>
+  <p class="hint" style="margin:0">Keine aktiven Freigaben vorhanden. Zuerst eine <a href="{{ url_for('share_new') }}">Freigabe anlegen</a>.</p>
 </div>
 {% else %}
 <div class="files-explorer card">

@@ -79,7 +79,7 @@
 
     <div class="btn-group">
       <button type="submit" class="btn btn-primary">Ausgewählte importieren</button>
-      <a href="{{ url_for('index') }}" class="btn btn-secondary">Abbrechen</a>
+      <a href="{{ url_for('shares_list') }}" class="btn btn-secondary">Abbrechen</a>
     </div>
   </form>
 </div>
@@ -90,7 +90,7 @@
     <code>smb-shares.conf</code> oder <code>smb.conf</code> enthält keine Freigaben mit <code>path</code>.
   </p>
   <div class="btn-group" style="margin-top:1rem">
-    <a href="{{ url_for('index') }}" class="btn btn-secondary">Zurück</a>
+    <a href="{{ url_for('shares_list') }}" class="btn btn-secondary">Zurück</a>
   </div>
 </div>
 {% endif %}

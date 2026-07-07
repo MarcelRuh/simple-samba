@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}Freigaben – {{ app_name }}{% endblock %}
+{% block page_heading %}SMB-Freigaben{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Freigaben verwalten</h1>
+  <p class="lead">SMB-Shares auf diesem Server – Basis: <code>{{ config.shares_base_path }}</code></p>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <span class="card-title">Aktionen</span>
+    <div class="btn-group">
+      <a href="{{ url_for('share_new') }}" class="btn btn-primary">+ Neue Freigabe</a>
+      <a href="{{ url_for('share_import') }}" class="btn btn-secondary">Aus smb.conf importieren</a>
+      <a href="{{ url_for('config_check_page') }}" class="btn btn-secondary">Konfiguration prüfen</a>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <span class="card-title">Alle Freigaben</span>
+  </div>
+  {% if shares %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Pfad</th>
+          <th>Zugriff</th>
+          <th>Status</th>
+          <th>Aktionen</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for share in shares %}
+        <tr>
+          <td>
+            <div class="share-name">{{ share.name }}</div>
+            {% if share.comment %}<div class="hint">{{ share.comment }}</div>{% endif %}
+          </td>
+          <td><code>{{ share.path }}</code></td>
+          <td>
+            {% if share.guest_ok %}
+              <span class="badge neutral">Gast</span>
+            {% else %}
+              <span class="hint">{{ share.valid_users|join(', ') }}</span>
+            {% endif %}
+            <span class="badge {% if share.read_only %}ro{% else %}rw{% endif %}" style="margin-left:0.35rem">
+              {{ 'Nur Lesen' if share.read_only else 'Lesen/Schreiben' }}
+            </span>
+          </td>
+          <td>
+            {% if share.enabled %}
+              <span class="badge ok">Aktiv</span>
+            {% else %}
+              <span class="badge off">Deaktiviert</span>
+            {% endif %}
+          </td>
+          <td class="actions-cell">
+            <div class="btn-group">
+              <a href="{{ url_for('share_edit', share_name=share.name) }}" class="btn btn-secondary btn-sm">Bearbeiten</a>
+              <form class="inline-form" method="post" action="{{ url_for('share_toggle', share_name=share.name) }}" data-loading>
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-secondary btn-sm">
+                  {{ 'Aus' if share.enabled else 'An' }}
+                </button>
+              </form>
+              <a href="{{ url_for('share_delete', share_name=share.name) }}" class="btn btn-danger btn-sm">Löschen</a>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <svg class="empty-state-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+      <path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/>
+    </svg>
+    <p>Noch keine Freigaben angelegt.</p>
+    <a href="{{ url_for('share_new') }}" class="btn btn-primary">Erste Freigabe erstellen</a>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

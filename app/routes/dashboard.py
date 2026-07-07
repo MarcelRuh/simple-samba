@@ -16,16 +16,16 @@ def register(app: Flask) -> None:
     def index():
         config = load_config()
         overview, overview_error = get_overview_safe()
+        shares_count = 0
         try:
-            shares = read_shares(config["samba_shares_file"])
+            shares_count = len(read_shares(config["samba_shares_file"]))
             status = service_status()
         except SambaError as exc:
             flash(str(exc), "error")
-            shares = []
             status = {"active": "unknown", "is_running": False, "output": ""}
         return render_template(
-            "index.html",
-            shares=shares,
+            "dashboard.html",
+            shares_count=shares_count,
             status=status,
             config=config,
             overview=overview,
