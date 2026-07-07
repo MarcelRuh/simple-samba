@@ -745,8 +745,8 @@
   }
 
   function showApiError(err) {
-    var msg = (err && err.message) ? err.message : 'Unbekannter Fehler';
-    showToast(msg, 'error');
+    var normalized = uploadFileError(err);
+    showToast(normalized.message || 'Unbekannter Fehler', 'error');
   }
 
   function apiPost(url, body) {
@@ -805,9 +805,22 @@
     return name || null;
   }
 
+  function uploadFileError(err) {
+    var msg = (err && err.message) ? String(err.message) : '';
+    if (err && (err.name === 'NotFoundError' || msg.indexOf('could not be found') !== -1)) {
+      return new Error(
+        'Datei nicht mehr zugänglich. Bitte erneut ablegen oder den Upload-Button verwenden ' +
+        '(nicht verschieben/löschen während des Uploads).'
+      );
+    }
+    return err instanceof Error ? err : new Error(msg || 'Unbekannter Fehler');
+  }
+
   function readBlobFromFile(file) {
     return file.arrayBuffer().then(function (buf) {
       return new Blob([buf], { type: file.type || 'application/octet-stream' });
+    }).catch(function (err) {
+      throw uploadFileError(err);
     });
   }
 
@@ -923,113 +936,29 @@
     });
   }
 
-  function readDirectory(dirEntry, prefix) {
-    var reader = dirEntry.createReader();
-    var collected = [];
+  function snapshotDroppedFiles(dataTransfer) {
+    if (!dataTransfer) return [];
 
-    return new Promise(function (resolve, reject) {
-      function readBatch() {
-        reader.readEntries(function (entries) {
-          if (!entries.length) {
-            resolve(collected);
-            return;
-          }
-          var chain = Promise.resolve();
-          entries.forEach(function (entry) {
-            chain = chain.then(function () {
-              if (entry.isFile) {
-                return new Promise(function (res, rej) {
-                  entry.file(function (file) {
-                    var relPath = prefix + '/' + entry.name;
-                    if (!uploadDisplayName(file, entry.name)) {
-                      rej(new Error('Datei ohne Namen'));
-                      return;
-                    }
-                    collected.push({
-                      file: file,
-                      relPath: relPath,
-                    });
-                    res();
-                  }, rej);
-                });
-              }
-              if (entry.isDirectory) {
-                return readDirectory(entry, prefix + '/' + entry.name).then(function (nested) {
-                  collected = collected.concat(nested);
-                });
-              }
-              return Promise.resolve();
-            });
-          });
-          chain.then(readBatch).catch(reject);
-        }, reject);
-      }
-      readBatch();
-    });
-  }
-
-  function processDroppedEntry(entry) {
-    if (entry.isFile) {
-      return new Promise(function (resolve, reject) {
-        entry.file(function (file) {
-          if (!uploadDisplayName(file, entry.name)) {
-            reject(new Error('Datei ohne Namen'));
-            return;
-          }
-          resolve([{ file: file, relPath: entry.name || file.name }]);
-        }, reject);
-      });
-    }
-    if (entry.isDirectory) {
-      return readDirectory(entry, entry.name);
-    }
-    return Promise.resolve([]);
-  }
-
-  function collectDroppedFiles(dataTransfer) {
-    if (!dataTransfer) return Promise.resolve([]);
-
-    var collected = [];
-    var items = dataTransfer.items;
-    if (items && items.length) {
-      var entries = [];
-      for (var i = 0; i < items.length; i++) {
-        if (items[i].kind !== 'file') continue;
-        var entry = null;
-        if (items[i].webkitGetAsEntry) {
-          entry = items[i].webkitGetAsEntry();
-        }
-        if (entry) {
-          entries.push(entry);
-          continue;
-        }
-        if (items[i].getAsFile) {
-          var directFile = items[i].getAsFile();
-          if (directFile) {
-            if (uploadDisplayName(directFile, directFile.name)) {
-              collected.push({ file: directFile, relPath: directFile.name });
-            }
-          }
-        }
-      }
-      if (entries.length) {
-        return Promise.all(entries.map(processDroppedEntry)).then(function (groups) {
-          var flat = collected.slice();
-          groups.forEach(function (group) {
-            flat = flat.concat(group);
-          });
-          return flat;
-        });
-      }
-      if (collected.length) {
-        return Promise.resolve(collected);
-      }
-    }
-
+    var items = [];
     var files = dataTransfer.files ? Array.prototype.slice.call(dataTransfer.files) : [];
-    return Promise.resolve(files.map(function (file) {
-      return uploadDisplayName(file, file.name) ? { file: file, relPath: file.name } : null;
-    }).filter(Boolean));
+    var i;
+    for (i = 0; i < files.length; i++) {
+      var file = files[i];
+      if (!file) continue;
+      var relPath = (file.webkitRelativePath || file.name || '').replace(/\\/g, '/');
+      if (!uploadDisplayName(file, relPath)) continue;
+      items.push({ file: file, relPath: relPath });
+    }
+    if (items.length) return items;
+
+    var dtItems = dataTransfer.items ? Array.prototype.slice.call(dataTransfer.items) : [];
+    for (i = 0; i < dtItems.length; i++) {
+      if (dtItems[i].kind !== 'file' || !dtItems[i].getAsFile) continue;
+      var directFile = dtItems[i].getAsFile();
+      if (!directFile || !uploadDisplayName(directFile, directFile.name)) continue;
+      items.push({ file: directFile, relPath: directFile.name });
+    }
+    return items;
   }
 
   function setDropActive(active) {
@@ -1103,14 +1032,6 @@
       });
   }
 
-  function uploadFiles(fileList) {
-    if (!fileList || !fileList.length) return;
-    var items = Array.prototype.slice.call(fileList).map(function (file) {
-      return { file: file, relPath: file.name };
-    });
-    uploadFileItems(items);
-  }
-
   function initDragAndDrop() {
     var dropZone = document.querySelector('.files-main') || contentEl;
     if (!dropZone) return;
@@ -1144,15 +1065,14 @@
       dragDepth = 0;
       setDropActive(false);
       if (!canAcceptDrop()) return;
-      collectDroppedFiles(e.dataTransfer)
-        .then(function (items) {
-          if (!items.length) {
-            if (window.showToast) showToast('Keine Dateien zum Hochladen erkannt.', 'error');
-            return;
-          }
-          uploadFileItems(items);
-        })
-        .catch(showApiError);
+      var items = snapshotDroppedFiles(e.dataTransfer);
+      if (!items.length) {
+        if (window.showToast) {
+          showToast('Keine Dateien zum Hochladen erkannt.', 'error');
+        }
+        return;
+      }
+      uploadFileItems(items);
     });
 
     document.addEventListener('dragover', function (e) {
@@ -1170,8 +1090,16 @@
   }
 
   uploadInput.addEventListener('change', function () {
-    uploadFiles(uploadInput.files);
+    var files = uploadInput.files ? Array.prototype.slice.call(uploadInput.files) : [];
     uploadInput.value = '';
+    if (!files.length) return;
+    var items = files.map(function (file) {
+      return {
+        file: file,
+        relPath: (file.webkitRelativePath || file.name || '').replace(/\\/g, '/'),
+      };
+    });
+    uploadFileItems(items);
   });
 
   mkdirBtn.addEventListener('click', function () {
