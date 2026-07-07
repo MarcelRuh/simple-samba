@@ -25,6 +25,8 @@
   var dlProgressBar = document.getElementById('files-download-progress-bar');
   var dlProgressText = document.getElementById('files-download-progress-text');
   var dlCancelBtn = document.getElementById('files-download-cancel-btn');
+  var contentEl = document.getElementById('files-content');
+  var dropOverlay = document.getElementById('files-drop-overlay');
 
   var currentShare = '';
   var currentPath = '';
@@ -34,6 +36,8 @@
   var searchQuery = '';
   var sortMode = 'name';
   var downloadBusy = false;
+  var uploadBusy = false;
+  var dragDepth = 0;
   var downloadTransferXhr = null;
   var downloadCancelled = false;
 
@@ -789,13 +793,14 @@
       .finally(function () { setLoading(false); });
   }
 
-  function uploadOne(file, index, total) {
+  function uploadOne(file, index, total, targetPath) {
+    var uploadPath = targetPath !== undefined ? targetPath : currentPath;
     return new Promise(function (resolve, reject) {
       var xhr = new XMLHttpRequest();
       var form = new FormData();
       form.append('csrf_token', csrfToken());
       form.append('share', currentShare);
-      form.append('path', currentPath);
+      form.append('path', uploadPath);
       form.append('file', file, file.name);
 
       xhr.upload.addEventListener('progress', function (e) {
@@ -832,36 +837,233 @@
     });
   }
 
-  function uploadFiles(fileList) {
-    if (!fileList || !fileList.length || readOnly) return;
-    var files = Array.prototype.slice.call(fileList);
-    var total = files.length;
+  function dirnameRel(relPath) {
+    var parts = (relPath || '').replace(/\\/g, '/').split('/').filter(Boolean);
+    parts.pop();
+    return parts.join('/');
+  }
+
+  function joinCurrentPath(relDir) {
+    if (!relDir) return currentPath;
+    return currentPath ? currentPath + '/' + relDir : relDir;
+  }
+
+  function ensureRelativeDirs(relDir) {
+    if (!relDir) return Promise.resolve();
+    var parts = relDir.split('/').filter(Boolean);
+    var chain = Promise.resolve();
+    var acc = currentPath;
+    parts.forEach(function (part) {
+      chain = chain.then(function () {
+        return apiPost('/api/files/mkdir', {
+          share: currentShare,
+          path: acc,
+          name: part,
+        }).catch(function (err) {
+          var msg = (err && err.message) ? err.message : '';
+          if (msg.indexOf('existiert bereits') === -1) throw err;
+        });
+      }).then(function () {
+        acc = acc ? acc + '/' + part : part;
+      });
+    });
+    return chain;
+  }
+
+  function readDirectory(dirEntry, prefix) {
+    var reader = dirEntry.createReader();
+    var collected = [];
+
+    return new Promise(function (resolve, reject) {
+      function readBatch() {
+        reader.readEntries(function (entries) {
+          if (!entries.length) {
+            resolve(collected);
+            return;
+          }
+          var chain = Promise.resolve();
+          entries.forEach(function (entry) {
+            chain = chain.then(function () {
+              if (entry.isFile) {
+                return new Promise(function (res, rej) {
+                  entry.file(function (file) {
+                    collected.push({
+                      file: file,
+                      relPath: prefix + '/' + file.name,
+                    });
+                    res();
+                  }, rej);
+                });
+              }
+              if (entry.isDirectory) {
+                return readDirectory(entry, prefix + '/' + entry.name).then(function (nested) {
+                  collected = collected.concat(nested);
+                });
+              }
+              return Promise.resolve();
+            });
+          });
+          chain.then(readBatch).catch(reject);
+        }, reject);
+      }
+      readBatch();
+    });
+  }
+
+  function processDroppedEntry(entry) {
+    if (entry.isFile) {
+      return new Promise(function (resolve, reject) {
+        entry.file(function (file) {
+          resolve([{ file: file, relPath: file.name }]);
+        }, reject);
+      });
+    }
+    if (entry.isDirectory) {
+      return readDirectory(entry, entry.name);
+    }
+    return Promise.resolve([]);
+  }
+
+  function collectDroppedFiles(dataTransfer) {
+    if (!dataTransfer) return Promise.resolve([]);
+
+    var items = dataTransfer.items;
+    if (items && items.length) {
+      var entries = [];
+      for (var i = 0; i < items.length; i++) {
+        if (items[i].kind !== 'file') continue;
+        var entry = items[i].webkitGetAsEntry && items[i].webkitGetAsEntry();
+        if (entry) entries.push(entry);
+      }
+      if (entries.length) {
+        return Promise.all(entries.map(processDroppedEntry)).then(function (groups) {
+          var flat = [];
+          groups.forEach(function (group) {
+            flat = flat.concat(group);
+          });
+          return flat;
+        });
+      }
+    }
+
+    var files = dataTransfer.files ? Array.prototype.slice.call(dataTransfer.files) : [];
+    return Promise.resolve(files.map(function (file) {
+      return { file: file, relPath: file.name };
+    }));
+  }
+
+  function setDropActive(active) {
+    if (!contentEl) return;
+    contentEl.classList.toggle('files-content--dragover', active);
+    if (dropOverlay) {
+      if (active) {
+        dropOverlay.removeAttribute('hidden');
+        dropOverlay.setAttribute('aria-hidden', 'false');
+      } else {
+        dropOverlay.setAttribute('hidden', '');
+        dropOverlay.setAttribute('aria-hidden', 'true');
+      }
+    }
+  }
+
+  function uploadFileItems(items) {
+    if (!items || !items.length || readOnly) return;
+    if (uploadBusy) {
+      if (window.showToast) showToast('Upload läuft bereits.', 'error');
+      return;
+    }
+
+    uploadBusy = true;
+    var total = items.length;
     if (progressEl) {
       progressEl.removeAttribute('hidden');
       progressBar.style.width = '0%';
     }
 
+    var prepared = [];
     var chain = Promise.resolve();
-    files.forEach(function (file, index) {
+    items.forEach(function (item) {
       chain = chain.then(function () {
-        progressBar.style.width = '0%';
-        return uploadOne(file, index, total);
+        var relPath = (item.relPath || item.file.name || '').replace(/\\/g, '/');
+        var relDir = dirnameRel(relPath);
+        return ensureRelativeDirs(relDir).then(function () {
+          prepared.push({
+            file: item.file,
+            path: joinCurrentPath(relDir),
+          });
+        });
       });
     });
 
     chain
       .then(function () {
-        showToast('Upload abgeschlossen.', 'success');
+        var uploadChain = Promise.resolve();
+        prepared.forEach(function (entry, index) {
+          uploadChain = uploadChain.then(function () {
+            progressBar.style.width = '0%';
+            return uploadOne(entry.file, index, total, entry.path);
+          });
+        });
+        return uploadChain;
+      })
+      .then(function () {
+        if (window.showToast) showToast('Upload abgeschlossen.', 'success');
         loadBrowse(currentPath);
       })
       .catch(showApiError)
       .finally(function () {
+        uploadBusy = false;
         if (progressEl) {
           progressEl.setAttribute('hidden', '');
           progressBar.style.width = '0%';
           progressText.textContent = '';
         }
       });
+  }
+
+  function uploadFiles(fileList) {
+    if (!fileList || !fileList.length) return;
+    var items = Array.prototype.slice.call(fileList).map(function (file) {
+      return { file: file, relPath: file.name };
+    });
+    uploadFileItems(items);
+  }
+
+  function initDragAndDrop() {
+    if (!contentEl) return;
+
+    contentEl.addEventListener('dragenter', function (e) {
+      if (readOnly || uploadBusy) return;
+      e.preventDefault();
+      dragDepth += 1;
+      setDropActive(true);
+    });
+
+    contentEl.addEventListener('dragover', function (e) {
+      if (readOnly || uploadBusy) return;
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+    });
+
+    contentEl.addEventListener('dragleave', function (e) {
+      if (readOnly) return;
+      e.preventDefault();
+      dragDepth = Math.max(0, dragDepth - 1);
+      if (dragDepth === 0) setDropActive(false);
+    });
+
+    contentEl.addEventListener('drop', function (e) {
+      e.preventDefault();
+      dragDepth = 0;
+      setDropActive(false);
+      if (readOnly || uploadBusy) return;
+      collectDroppedFiles(e.dataTransfer)
+        .then(function (items) {
+          if (!items.length) return;
+          uploadFileItems(items);
+        })
+        .catch(showApiError);
+    });
   }
 
   function toggleView() {
@@ -928,5 +1130,6 @@
   renderSidebar();
   setWriteControls();
   updateHttpsHint();
+  initDragAndDrop();
   loadBrowse('');
 })();

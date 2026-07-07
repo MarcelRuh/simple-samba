@@ -29,7 +29,7 @@
           <option value="size">Größe</option>
           <option value="mtime">Datum</option>
         </select>
-        <label class="files-icon-btn files-upload-btn" id="files-upload-label" title="Hochladen">
+        <label class="files-icon-btn files-upload-btn" id="files-upload-label" title="Hochladen oder per Drag &amp; Drop ablegen">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
           <input type="file" id="files-upload-input" multiple hidden>
         </label>
@@ -68,7 +68,17 @@
       <span class="hint" id="files-download-progress-text"></span>
     </div>
 
-    <div class="files-content">
+    <div class="files-content" id="files-content">
+      <div id="files-drop-overlay" class="files-drop-overlay" hidden aria-hidden="true">
+        <div class="files-drop-overlay-inner">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+            <polyline points="17 8 12 3 7 8"/>
+            <line x1="12" y1="3" x2="12" y2="15"/>
+          </svg>
+          <span>Dateien hier ablegen zum Hochladen</span>
+        </div>
+      </div>
       <div id="files-loading" class="files-loading" hidden>
         <span class="files-loading-spinner"></span> Lade …
       </div>

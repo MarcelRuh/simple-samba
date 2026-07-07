@@ -2,7 +2,7 @@
 
 Interne Web-Verwaltung für Samba-Freigaben auf Debian – klein, ohne Reverse Proxy, ohne nginx/Caddy/Apache.
 
-**Aktuelle Version:** v1.14.0
+**Aktuelle Version:** v1.14.1
 
 ## Screenshots
 
@@ -28,6 +28,7 @@ Interne Web-Verwaltung für Samba-Freigaben auf Debian – klein, ohne Reverse P
 - **App-Update-Hinweis** – prüft GitHub auf neuere Versionen (Cache: 6 h)
 - **App-Update-Button** – GitHub-Update direkt aus der UI
 - **Datei-Explorer** – Dateien in Freigaben durchsuchen, hoch- und herunterladen (mit Fortschritt & Abbruch)
+- **Drag & Drop Upload** – Dateien und Ordner in den Explorer ziehen
 - Ordner-Download als **Streaming-ZIP** (HTTP) oder direkt in Zielordner (HTTPS)
 - Downloads **direkt aus Freigaben** ohne Kopie auf die Systemplatte
 - Datei-Explorer: **Sortierung** (Name, Größe, Datum) und Hinweis zu HTTP/ZIP vs. HTTPS
