@@ -2,7 +2,7 @@
 
 Interne Web-Verwaltung für Samba-Freigaben auf Debian – klein, ohne Reverse Proxy, ohne nginx/Caddy/Apache.
 
-**Aktuelle Version:** v1.8.0
+**Aktuelle Version:** v1.9.1
 
 ## Screenshots
 
@@ -10,13 +10,13 @@ Interne Web-Verwaltung für Samba-Freigaben auf Debian – klein, ohne Reverse P
 |-----------|----------|
 | ![Freigaben](docs/screenshots/Freigaben.png) | ![Benutzer](docs/screenshots/Benutzer.png) |
 
-| Status | Updates |
-|--------|---------|
-| ![Status](docs/screenshots/Status.png) | ![Updates](docs/screenshots/Updates.png) |
+| Datei-Explorer | Status |
+|----------------|--------|
+| ![Dateien](docs/screenshots/Dateien.png) | ![Status](docs/screenshots/Status.png) |
 
-| Admin-Passwort |
-|----------------|
-| ![Admin-Passwort](docs/screenshots/Passwort.png) |
+| Updates | Admin-Passwort |
+|---------|----------------|
+| ![Updates](docs/screenshots/Updates.png) | ![Admin-Passwort](docs/screenshots/Passwort.png) |
 
 ## Features
 
