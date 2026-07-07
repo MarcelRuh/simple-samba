@@ -25,8 +25,6 @@
   var dlProgressBar = document.getElementById('files-download-progress-bar');
   var dlProgressText = document.getElementById('files-download-progress-text');
   var dlCancelBtn = document.getElementById('files-download-cancel-btn');
-  var contentEl = document.getElementById('files-content');
-  var dropOverlay = document.getElementById('files-drop-overlay');
 
   var currentShare = '';
   var currentPath = '';
@@ -37,7 +35,6 @@
   var sortMode = 'name';
   var downloadBusy = false;
   var uploadBusy = false;
-  var dragDepth = 0;
   var downloadTransferXhr = null;
   var downloadCancelled = false;
 
@@ -809,7 +806,7 @@
     var msg = (err && err.message) ? String(err.message) : '';
     if (err && (err.name === 'NotFoundError' || msg.indexOf('could not be found') !== -1)) {
       return new Error(
-        'Datei nicht mehr zugänglich. Bitte erneut ablegen oder den Upload-Button verwenden ' +
+        'Datei nicht mehr zugänglich. Bitte erneut auswählen ' +
         '(nicht verschieben/löschen während des Uploads).'
       );
     }
@@ -936,45 +933,6 @@
     });
   }
 
-  function snapshotDroppedFiles(dataTransfer) {
-    if (!dataTransfer) return [];
-
-    var items = [];
-    var files = dataTransfer.files ? Array.prototype.slice.call(dataTransfer.files) : [];
-    var i;
-    for (i = 0; i < files.length; i++) {
-      var file = files[i];
-      if (!file) continue;
-      var relPath = (file.webkitRelativePath || file.name || '').replace(/\\/g, '/');
-      if (!uploadDisplayName(file, relPath)) continue;
-      items.push({ file: file, relPath: relPath });
-    }
-    if (items.length) return items;
-
-    var dtItems = dataTransfer.items ? Array.prototype.slice.call(dataTransfer.items) : [];
-    for (i = 0; i < dtItems.length; i++) {
-      if (dtItems[i].kind !== 'file' || !dtItems[i].getAsFile) continue;
-      var directFile = dtItems[i].getAsFile();
-      if (!directFile || !uploadDisplayName(directFile, directFile.name)) continue;
-      items.push({ file: directFile, relPath: directFile.name });
-    }
-    return items;
-  }
-
-  function setDropActive(active) {
-    if (!contentEl) return;
-    contentEl.classList.toggle('files-content--dragover', active);
-    if (dropOverlay) {
-      if (active) {
-        dropOverlay.removeAttribute('hidden');
-        dropOverlay.setAttribute('aria-hidden', 'false');
-      } else {
-        dropOverlay.setAttribute('hidden', '');
-        dropOverlay.setAttribute('aria-hidden', 'true');
-      }
-    }
-  }
-
   function uploadFileItems(items) {
     if (!items || !items.length || readOnly) return;
     if (uploadBusy) {
@@ -1030,55 +988,6 @@
           progressText.textContent = '';
         }
       });
-  }
-
-  function initDragAndDrop() {
-    var dropZone = document.querySelector('.files-main') || contentEl;
-    if (!dropZone) return;
-
-    function canAcceptDrop() {
-      return !readOnly && !uploadBusy;
-    }
-
-    dropZone.addEventListener('dragenter', function (e) {
-      if (!canAcceptDrop()) return;
-      e.preventDefault();
-      dragDepth += 1;
-      setDropActive(true);
-    });
-
-    dropZone.addEventListener('dragover', function (e) {
-      if (!canAcceptDrop()) return;
-      e.preventDefault();
-      if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
-    });
-
-    dropZone.addEventListener('dragleave', function (e) {
-      if (readOnly) return;
-      e.preventDefault();
-      dragDepth = Math.max(0, dragDepth - 1);
-      if (dragDepth === 0) setDropActive(false);
-    });
-
-    dropZone.addEventListener('drop', function (e) {
-      e.preventDefault();
-      dragDepth = 0;
-      setDropActive(false);
-      if (!canAcceptDrop()) return;
-      var items = snapshotDroppedFiles(e.dataTransfer);
-      if (!items.length) {
-        if (window.showToast) {
-          showToast('Keine Dateien zum Hochladen erkannt.', 'error');
-        }
-        return;
-      }
-      uploadFileItems(items);
-    });
-
-    document.addEventListener('dragover', function (e) {
-      if (!dropZone.contains(e.target)) return;
-      e.preventDefault();
-    });
   }
 
   function toggleView() {
@@ -1153,6 +1062,5 @@
   renderSidebar();
   setWriteControls();
   updateHttpsHint();
-  initDragAndDrop();
   loadBrowse('');
 })();
