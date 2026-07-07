@@ -1162,9 +1162,26 @@ pre.output {
 }
 
 /* Datei-Explorer (Nautilus-Stil) */
+.container--files {
+  max-width: none;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 0.75rem 1rem 1rem;
+  min-height: 0;
+  width: 100%;
+}
+
+.container--files .files-explorer {
+  flex: 1;
+  min-height: 0;
+  margin-bottom: 0;
+}
+
 .files-explorer {
   display: flex;
-  min-height: 32rem;
+  flex: 1;
+  min-height: calc(100vh - var(--header-h) - 2rem);
   padding: 0;
   overflow: hidden;
 }
@@ -1409,18 +1426,34 @@ pre.output {
 
 .files-content {
   flex: 1;
+  min-height: 0;
   overflow: auto;
   padding: 1rem;
   position: relative;
 }
 
 .files-loading {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 0.65rem;
   padding: 3rem;
   color: var(--text-secondary);
+  background: rgba(9, 12, 16, 0.72);
+  backdrop-filter: blur(2px);
+}
+
+.files-loading[hidden] {
+  display: none !important;
+}
+
+.files-grid[hidden],
+.files-list-wrap[hidden],
+.files-empty[hidden] {
+  display: none !important;
 }
 
 .files-loading-spinner {
@@ -1617,9 +1650,13 @@ pre.output {
 }
 
 @media (max-width: 860px) {
+  .container--files {
+    padding: 0.5rem;
+  }
+
   .files-explorer {
     flex-direction: column;
-    min-height: 24rem;
+    min-height: calc(100vh - var(--header-h) - 1.5rem);
   }
 
   .files-sidebar {

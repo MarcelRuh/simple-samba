@@ -72,7 +72,7 @@
         <button type="submit" class="btn btn-ghost btn-sm">Abmelden</button>
       </form>
     </header>
-    <main class="container">
+    <main class="container {% block container_mod %}{% endblock %}">
       {% if app_update and app_update.update_available and request.endpoint != 'system_updates' %}
       <div class="notice notice-warn app-update-banner" role="status">
         <span class="toast-icon" aria-hidden="true">↑</span>

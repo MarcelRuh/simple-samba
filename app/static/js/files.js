@@ -311,7 +311,19 @@
     listWrap.hidden = entries.length === 0 && !data.rel_path;
   }
 
+  function setLoading(active) {
+    if (!loadingEl) return;
+    if (active) {
+      loadingEl.removeAttribute('hidden');
+      loadingEl.classList.add('is-active');
+    } else {
+      loadingEl.setAttribute('hidden', '');
+      loadingEl.classList.remove('is-active');
+    }
+  }
+
   function renderView(data) {
+    setLoading(false);
     lastData = data;
     renderBreadcrumb(data);
     if (viewMode === 'grid') {
@@ -349,7 +361,7 @@
 
   function loadBrowse(path) {
     currentPath = path || '';
-    loadingEl.hidden = false;
+    setLoading(true);
     emptyEl.hidden = true;
     gridEl.hidden = true;
     listWrap.hidden = true;
@@ -371,7 +383,7 @@
         renderView(data);
       })
       .catch(showApiError)
-      .finally(function () { loadingEl.hidden = true; });
+      .finally(function () { setLoading(false); });
   }
 
   function uploadOne(file, index, total) {
