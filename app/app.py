@@ -446,7 +446,14 @@ def create_app() -> Flask:
         except SambaError as exc:
             flash(str(exc), "error")
             shares = []
-        return render_template("files.html", shares=shares)
+        return render_template(
+            "files.html",
+            shares=shares,
+            shares_boot=[
+                {"name": s.name, "path": s.path, "readOnly": s.read_only}
+                for s in shares
+            ],
+        )
 
     @app.route("/api/files/browse")
     @login_required

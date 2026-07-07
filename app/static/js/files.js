@@ -1,18 +1,23 @@
 (function () {
   'use strict';
 
-  if (!window.FILES_BOOT) return;
+  if (!window.FILES_BOOT || !window.FILES_BOOT.shares) return;
 
-  var shareSelect = document.getElementById('files-share-select');
+  var shares = window.FILES_BOOT.shares;
+  var shareList = document.getElementById('files-share-list');
   var breadcrumb = document.getElementById('files-breadcrumb');
+  var backBtn = document.getElementById('files-back-btn');
+  var gridEl = document.getElementById('files-grid');
+  var listWrap = document.getElementById('files-list-wrap');
   var tbody = document.getElementById('files-tbody');
   var loadingEl = document.getElementById('files-loading');
   var emptyEl = document.getElementById('files-empty');
-  var metaEl = document.getElementById('files-meta');
   var uploadInput = document.getElementById('files-upload-input');
   var uploadLabel = document.getElementById('files-upload-label');
   var mkdirBtn = document.getElementById('files-mkdir-btn');
   var refreshBtn = document.getElementById('files-refresh-btn');
+  var viewToggle = document.getElementById('files-view-toggle');
+  var searchInput = document.getElementById('files-search');
   var progressEl = document.getElementById('files-upload-progress');
   var progressBar = document.getElementById('files-upload-progress-bar');
   var progressText = document.getElementById('files-upload-progress-text');
@@ -20,19 +25,22 @@
   var currentShare = '';
   var currentPath = '';
   var readOnly = false;
+  var viewMode = 'grid';
+  var lastData = null;
+  var searchQuery = '';
+
+  var IMAGE_EXT = /\.(png|jpe?g|gif|webp|svg|bmp|ico)$/i;
 
   function csrfToken() {
     var meta = document.querySelector('meta[name="csrf-token"]');
     return meta ? meta.getAttribute('content') : '';
   }
 
-  function selectedShare() {
-    var opt = shareSelect.options[shareSelect.selectedIndex];
-    return {
-      name: opt.value,
-      path: opt.getAttribute('data-path') || '',
-      readOnly: opt.getAttribute('data-readonly') === '1',
-    };
+  function shareByName(name) {
+    for (var i = 0; i < shares.length; i++) {
+      if (shares[i].name === name) return shares[i];
+    }
+    return shares[0];
   }
 
   function formatSize(bytes) {
@@ -59,37 +67,76 @@
     mkdirBtn.disabled = disabled;
   }
 
-  function downloadUrl(relPath) {
-    return '/api/files/download?share=' + encodeURIComponent(currentShare) +
-      '&path=' + encodeURIComponent(relPath);
+  function relPath(data, name) {
+    return data.rel_path ? data.rel_path + '/' + name : name;
   }
 
-  function addDownloadButton(actionCell, relPath, label) {
-    var dl = document.createElement('a');
-    dl.className = 'btn btn-secondary btn-sm';
-    dl.textContent = label || 'Download';
-    dl.href = downloadUrl(relPath);
-    actionCell.appendChild(dl);
+  function downloadUrl(rel) {
+    return '/api/files/download?share=' + encodeURIComponent(currentShare) +
+      '&path=' + encodeURIComponent(rel);
+  }
+
+  function fileIconSvg(type) {
+    if (type === 'dir') {
+      return '<svg viewBox="0 0 24 24" fill="currentColor" class="files-icon-folder"><path d="M10 4H4a2 2 0 00-2 2v12a2 2 0 002 2h16a2 2 0 002-2V8a2 2 0 00-2-2h-8l-2-2z"/></svg>';
+    }
+    return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="files-icon-file"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>';
+  }
+
+  function isImage(name) {
+    return IMAGE_EXT.test(name);
+  }
+
+  function renderSidebar() {
+    shareList.innerHTML = '';
+    shares.forEach(function (share) {
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'files-share-item' + (share.name === currentShare ? ' active' : '');
+      btn.innerHTML =
+        '<span class="files-share-icon" aria-hidden="true">' + fileIconSvg('dir') + '</span>' +
+        '<span class="files-share-label"><span class="files-share-name">' + share.name + '</span>' +
+        '<span class="files-share-path">' + share.path + '</span></span>';
+      btn.addEventListener('click', function () {
+        if (currentShare === share.name) return;
+        currentShare = share.name;
+        readOnly = !!share.readOnly;
+        searchInput.value = '';
+        searchQuery = '';
+        renderSidebar();
+        setWriteControls();
+        loadBrowse('');
+      });
+      shareList.appendChild(btn);
+    });
   }
 
   function renderBreadcrumb(data) {
     breadcrumb.innerHTML = '';
-    var root = document.createElement('button');
-    root.type = 'button';
-    root.className = 'files-crumb';
-    root.textContent = currentShare;
-    root.addEventListener('click', function () { loadBrowse(''); });
-    breadcrumb.appendChild(root);
+    backBtn.hidden = !data.rel_path;
+
+    var home = document.createElement('button');
+    home.type = 'button';
+    home.className = 'files-crumb files-crumb-home';
+    home.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg>';
+    home.title = currentShare;
+    home.addEventListener('click', function () { loadBrowse(''); });
+    breadcrumb.appendChild(home);
+
+    var sep = document.createElement('span');
+    sep.className = 'files-crumb-sep';
+    sep.textContent = currentShare;
+    breadcrumb.appendChild(sep);
 
     if (!data.rel_path) return;
 
     var parts = data.rel_path.split('/').filter(Boolean);
     var acc = '';
     parts.forEach(function (part, idx) {
-      var sep = document.createElement('span');
-      sep.className = 'files-crumb-sep';
-      sep.textContent = '/';
-      breadcrumb.appendChild(sep);
+      var chevron = document.createElement('span');
+      chevron.className = 'files-crumb-chevron';
+      chevron.textContent = '›';
+      breadcrumb.appendChild(chevron);
 
       acc = acc ? acc + '/' + part : part;
       var isLast = idx === parts.length - 1;
@@ -111,76 +158,147 @@
     });
   }
 
-  function renderTable(data) {
-    tbody.innerHTML = '';
+  function filteredEntries(data) {
     var entries = data.entries || [];
+    if (!searchQuery) return entries;
+    var q = searchQuery.toLowerCase();
+    return entries.filter(function (e) {
+      return e.name.toLowerCase().indexOf(q) !== -1;
+    });
+  }
 
-    if (data.rel_path) {
-      var up = document.createElement('tr');
-      up.innerHTML =
-        '<td colspan="4"><button type="button" class="btn btn-ghost btn-sm files-up-btn">↩ Zurück</button></td>';
-      up.querySelector('button').addEventListener('click', function () {
-        loadBrowse(data.parent_rel || '');
+  function confirmDelete(entryName, entryType, rel) {
+    var label = entryType === 'dir' ? 'Ordner' : 'Datei';
+    window.SambaUI.confirm(
+      '"' + entryName + '" wirklich löschen?',
+      { title: label + ' löschen', okLabel: 'Löschen', danger: true }
+    ).then(function (ok) {
+      if (!ok) return;
+      apiPost('/api/files/delete', { share: currentShare, path: rel })
+        .then(function () {
+          showToast('Gelöscht.', 'success');
+          loadBrowse(currentPath);
+        })
+        .catch(showApiError);
+    });
+  }
+
+  function buildActions(entry, data, compact) {
+    var wrap = document.createElement('div');
+    wrap.className = 'files-item-actions';
+
+    var rel = relPath(data, entry.name);
+    var dl = document.createElement('a');
+    dl.className = 'files-action-btn';
+    dl.title = entry.type === 'dir' ? 'Als ZIP herunterladen' : 'Herunterladen';
+    dl.href = downloadUrl(rel);
+    dl.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>';
+    wrap.appendChild(dl);
+
+    if (!readOnly) {
+      var del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'files-action-btn files-action-danger';
+      del.title = 'Löschen';
+      del.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>';
+      del.addEventListener('click', function (e) {
+        e.stopPropagation();
+        confirmDelete(entry.name, entry.type, rel);
       });
-      tbody.appendChild(up);
+      wrap.appendChild(del);
     }
+    return wrap;
+  }
+
+  function openEntry(entry, data) {
+    if (entry.type === 'dir') {
+      loadBrowse(relPath(data, entry.name));
+    } else {
+      window.location.href = downloadUrl(relPath(data, entry.name));
+    }
+  }
+
+  function renderGrid(data) {
+    gridEl.innerHTML = '';
+    var entries = filteredEntries(data);
+
+    entries.forEach(function (entry) {
+      var item = document.createElement('div');
+      item.className = 'files-grid-item' + (entry.type === 'dir' ? ' is-dir' : ' is-file');
+      item.tabIndex = 0;
+
+      var preview = document.createElement('div');
+      preview.className = 'files-grid-preview';
+
+      if (entry.type === 'dir') {
+        preview.innerHTML = fileIconSvg('dir');
+      } else if (isImage(entry.name)) {
+        var img = document.createElement('img');
+        img.className = 'files-grid-thumb';
+        img.src = downloadUrl(relPath(data, entry.name));
+        img.alt = entry.name;
+        img.loading = 'lazy';
+        img.addEventListener('error', function () {
+          preview.innerHTML = fileIconSvg('file');
+        });
+        preview.appendChild(img);
+      } else {
+        preview.innerHTML = fileIconSvg('file');
+      }
+
+      var label = document.createElement('div');
+      label.className = 'files-grid-label';
+      label.textContent = entry.name;
+      label.title = entry.name;
+
+      item.appendChild(preview);
+      item.appendChild(label);
+      item.appendChild(buildActions(entry, data, true));
+
+      item.addEventListener('dblclick', function () { openEntry(entry, data); });
+      item.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') openEntry(entry, data);
+      });
+      item.addEventListener('click', function (e) {
+        if (e.target.closest('.files-item-actions')) return;
+        if (entry.type === 'dir') openEntry(entry, data);
+      });
+
+      gridEl.appendChild(item);
+    });
+
+    emptyEl.hidden = entries.length > 0;
+    gridEl.hidden = entries.length === 0 && !data.rel_path;
+  }
+
+  function renderList(data) {
+    tbody.innerHTML = '';
+    var entries = filteredEntries(data);
 
     entries.forEach(function (entry) {
       var tr = document.createElement('tr');
+      tr.className = 'files-list-row';
+
       var nameCell = document.createElement('td');
+      nameCell.className = 'files-list-name';
+      var nameBtn = document.createElement('button');
+      nameBtn.type = 'button';
+      nameBtn.className = 'files-list-name-btn';
+      nameBtn.innerHTML =
+        '<span class="files-list-icon">' + fileIconSvg(entry.type) + '</span>' +
+        '<span>' + entry.name + (entry.type === 'dir' ? '/' : '') + '</span>';
+      nameBtn.addEventListener('click', function () { openEntry(entry, data); });
+      nameCell.appendChild(nameBtn);
+
       var sizeCell = document.createElement('td');
+      sizeCell.textContent = entry.type === 'dir' ? '—' : formatSize(entry.size || 0);
+
       var timeCell = document.createElement('td');
-      var actionCell = document.createElement('td');
-      actionCell.className = 'actions-cell';
-
-      if (entry.type === 'dir') {
-        var dirBtn = document.createElement('button');
-        dirBtn.type = 'button';
-        dirBtn.className = 'files-entry-dir';
-        dirBtn.textContent = entry.name + '/';
-        dirBtn.addEventListener('click', function () {
-          var next = data.rel_path ? data.rel_path + '/' + entry.name : entry.name;
-          loadBrowse(next);
-        });
-        nameCell.appendChild(dirBtn);
-        sizeCell.textContent = '—';
-        var dirRel = data.rel_path ? data.rel_path + '/' + entry.name : entry.name;
-        addDownloadButton(actionCell, dirRel, 'Download (.zip)');
-      } else {
-        nameCell.innerHTML = '<code>' + entry.name + '</code>';
-        sizeCell.textContent = formatSize(entry.size || 0);
-        var fileRel = data.rel_path ? data.rel_path + '/' + entry.name : entry.name;
-        addDownloadButton(actionCell, fileRel);
-      }
-
       timeCell.textContent = formatTime(entry.mtime);
 
-      if (!readOnly) {
-        var del = document.createElement('button');
-        del.type = 'button';
-        del.className = 'btn btn-danger btn-sm';
-        del.textContent = 'Löschen';
-        del.style.marginLeft = '0.35rem';
-        (function (entryName, entryType) {
-          del.addEventListener('click', function () {
-            var rel = data.rel_path ? data.rel_path + '/' + entryName : entryName;
-            var label = entryType === 'dir' ? 'Ordner' : 'Datei';
-            window.SambaUI.confirm(
-              '"' + entryName + '" wirklich löschen?',
-              { title: label + ' löschen', okLabel: 'Löschen', danger: true }
-            ).then(function (ok) {
-              if (!ok) return;
-              apiPost('/api/files/delete', { share: currentShare, path: rel })
-                .then(function () {
-                  showToast('Gelöscht.', 'success');
-                  loadBrowse(currentPath);
-                })
-                .catch(showApiError);
-            });
-          });
-        })(entry.name, entry.type);
-        actionCell.appendChild(del);
-      }
+      var actionCell = document.createElement('td');
+      actionCell.className = 'files-list-actions';
+      actionCell.appendChild(buildActions(entry, data, false));
 
       tr.appendChild(nameCell);
       tr.appendChild(sizeCell);
@@ -189,8 +307,22 @@
       tbody.appendChild(tr);
     });
 
-    emptyEl.hidden = entries.length > 0 || !!data.rel_path;
-    metaEl.textContent = data.path || '';
+    emptyEl.hidden = entries.length > 0;
+    listWrap.hidden = entries.length === 0 && !data.rel_path;
+  }
+
+  function renderView(data) {
+    lastData = data;
+    renderBreadcrumb(data);
+    if (viewMode === 'grid') {
+      gridEl.hidden = false;
+      listWrap.hidden = true;
+      renderGrid(data);
+    } else {
+      gridEl.hidden = true;
+      listWrap.hidden = false;
+      renderList(data);
+    }
   }
 
   function showApiError(err) {
@@ -219,6 +351,8 @@
     currentPath = path || '';
     loadingEl.hidden = false;
     emptyEl.hidden = true;
+    gridEl.hidden = true;
+    listWrap.hidden = true;
 
     var url = '/api/files/browse?share=' + encodeURIComponent(currentShare) +
       '&path=' + encodeURIComponent(currentPath);
@@ -233,8 +367,8 @@
       .then(function (data) {
         readOnly = !!data.read_only;
         setWriteControls();
-        renderBreadcrumb(data);
-        renderTable(data);
+        renderSidebar();
+        renderView(data);
       })
       .catch(showApiError)
       .finally(function () { loadingEl.hidden = true; });
@@ -287,8 +421,10 @@
     if (!fileList || !fileList.length || readOnly) return;
     var files = Array.prototype.slice.call(fileList);
     var total = files.length;
-    progressEl.hidden = false;
-    progressBar.style.width = '0%';
+    if (progressEl) {
+      progressEl.hidden = false;
+      progressBar.style.width = '0%';
+    }
 
     var chain = Promise.resolve();
     files.forEach(function (file, index) {
@@ -305,19 +441,21 @@
       })
       .catch(showApiError)
       .finally(function () {
-        progressEl.hidden = true;
-        progressBar.style.width = '0%';
-        progressText.textContent = '';
+        if (progressEl) {
+          progressEl.hidden = true;
+          progressBar.style.width = '0%';
+          progressText.textContent = '';
+        }
       });
   }
 
-  shareSelect.addEventListener('change', function () {
-    var s = selectedShare();
-    currentShare = s.name;
-    readOnly = s.readOnly;
-    setWriteControls();
-    loadBrowse('');
-  });
+  function toggleView() {
+    viewMode = viewMode === 'grid' ? 'list' : 'grid';
+    viewToggle.title = viewMode === 'grid' ? 'Listenansicht' : 'Kachelansicht';
+    viewToggle.querySelector('.files-view-icon-grid').hidden = viewMode !== 'grid';
+    viewToggle.querySelector('.files-view-icon-list').hidden = viewMode === 'grid';
+    if (lastData) renderView(lastData);
+  }
 
   uploadInput.addEventListener('change', function () {
     uploadFiles(uploadInput.files);
@@ -346,10 +484,22 @@
   });
 
   refreshBtn.addEventListener('click', function () { loadBrowse(currentPath); });
+  viewToggle.addEventListener('click', toggleView);
+  backBtn.addEventListener('click', function () {
+    if (lastData && lastData.parent_rel !== undefined) {
+      loadBrowse(lastData.parent_rel || '');
+    }
+  });
 
-  var initial = selectedShare();
-  currentShare = initial.name;
-  readOnly = initial.readOnly;
+  searchInput.addEventListener('input', function () {
+    searchQuery = searchInput.value.trim();
+    if (lastData) renderView(lastData);
+  });
+
+  var first = shares[0];
+  currentShare = first.name;
+  readOnly = !!first.readOnly;
+  renderSidebar();
   setWriteControls();
   loadBrowse('');
 })();
