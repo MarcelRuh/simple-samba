@@ -2,6 +2,20 @@
 
 Interne Web-Verwaltung für Samba-Freigaben auf Debian – klein, ohne Reverse Proxy, ohne nginx/Caddy/Apache.
 
+## Screenshots
+
+| Dashboard | Benutzer |
+|-----------|----------|
+| ![Freigaben](docs/screenshots/Freigaben.png) | ![Benutzer](docs/screenshots/Benutzer.png) |
+
+| Status | Updates |
+|--------|---------|
+| ![Status](docs/screenshots/Status.png) | ![Updates](docs/screenshots/Updates.png) |
+
+| Admin-Passwort |
+|----------------|
+| ![Admin-Passwort](docs/screenshots/Passwort.png) |
+
 ## Features
 
 - SMB-Freigaben anlegen, bearbeiten, aktivieren/deaktivieren
