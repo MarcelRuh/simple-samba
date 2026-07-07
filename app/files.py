@@ -189,6 +189,15 @@ def download_manifest(share_name: str, rel_path: str) -> dict[str, Any]:
         raise FileBrowserError("Ungültige Antwort vom Server.") from exc
 
 
+def estimate_zip_download_size(manifest: dict[str, Any]) -> int:
+    files = manifest.get("files") or []
+    total_size = int(manifest.get("total_size") or 0)
+    if not total_size:
+        total_size = sum(int(entry.get("size") or 0) for entry in files)
+    file_count = int(manifest.get("total_files") or len(files))
+    return total_size + file_count * 128 + 4096
+
+
 def iter_folder_zip(share_name: str, rel_path: str) -> Any:
     """Streamt einen Ordner als ZIP direkt von der Freigabe (ohne Staging-Kopie)."""
     from zipstream import ZIP_STORED, ZipStream

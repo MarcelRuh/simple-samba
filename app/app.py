@@ -29,6 +29,7 @@ from app.files import (
     delete_path,
     download_job_status,
     download_manifest,
+    estimate_zip_download_size,
     iter_folder_zip,
     list_directory,
     stage_download,
@@ -563,11 +564,13 @@ def create_app() -> Flask:
         try:
             manifest = download_manifest(share_name, rel_path)
             folder_name = manifest.get("name") or "ordner"
+            estimated_size = estimate_zip_download_size(manifest)
             return Response(
                 iter_folder_zip(share_name, rel_path),
                 mimetype="application/zip",
                 headers={
                     "Content-Disposition": f'attachment; filename="{folder_name}.zip"',
+                    "X-Download-Total-Bytes": str(estimated_size),
                 },
             )
         except (ValidationError, FileBrowserError) as exc:

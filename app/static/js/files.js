@@ -63,6 +63,41 @@
     return (i === 0 ? size : size.toFixed(size >= 10 ? 0 : 1)) + ' ' + units[i];
   }
 
+  function estimateZipDownloadSize(manifest) {
+    var files = manifest.files || [];
+    var totalSize = manifest.total_size || 0;
+    if (!totalSize) {
+      files.forEach(function (file) {
+        totalSize += file.size || 0;
+      });
+    }
+    var fileCount = manifest.total_files || files.length;
+    return totalSize + fileCount * 128 + 4096;
+  }
+
+  function transferProgressPct(loaded, total) {
+    if (!total) {
+      return loaded > 0 ? Math.min(20, Math.round(loaded / (5 * 1024 * 1024) * 20)) : 2;
+    }
+    return Math.min(99, Math.round((loaded / total) * 100));
+  }
+
+  function formatTransferProgress(loaded, total, label, fileName, speedBps) {
+    var text = label + ': ' + fileName;
+    if (total > 0) {
+      var pct = transferProgressPct(loaded, total);
+      text += ' (' + pct + '% · ' + formatSize(loaded) + ' / ' + formatSize(total) + ')';
+    } else if (loaded > 0) {
+      text += ' (' + formatSize(loaded) + ' …)';
+    } else {
+      text += ' …';
+    }
+    if (speedBps > 0) {
+      text += ' · ' + formatSize(speedBps) + '/s';
+    }
+    return text;
+  }
+
   function formatTime(ts) {
     if (!ts) return '—';
     return new Date(ts * 1000).toLocaleString('de-DE');
@@ -278,20 +313,41 @@
       '&path=' + encodeURIComponent(rel);
   }
 
-  function transferDirectDownloadFromUrl(url, fileName) {
+  function transferDirectDownloadFromUrl(url, fileName, opts) {
+    opts = opts || {};
     return new Promise(function (resolve, reject) {
       var xhr = new XMLHttpRequest();
       downloadTransferXhr = xhr;
+      var expectedBytes = opts.expectedBytes || 0;
+      var headerTotal = 0;
+      var lastLoaded = 0;
+      var lastTime = Date.now();
+      var speedBps = 0;
+      var label = opts.label || 'Download';
+
       xhr.open('GET', url);
       xhr.responseType = 'blob';
+      xhr.onreadystatechange = function () {
+        if (xhr.readyState >= 2 && !headerTotal) {
+          var hdr = xhr.getResponseHeader('X-Download-Total-Bytes');
+          if (hdr) headerTotal = parseInt(hdr, 10) || 0;
+        }
+      };
       xhr.addEventListener('progress', function (e) {
         if (isDownloadAbort()) return;
-        if (e.lengthComputable) {
-          var transferPct = Math.round((e.loaded / e.total) * 100);
-          setDownloadProgress(true, transferPct, 'Download: ' + fileName + ' (' + transferPct + '%)');
-        } else {
-          setDownloadProgress(true, 50, 'Download: ' + fileName + ' …');
+        var total = e.lengthComputable ? e.total : (headerTotal || expectedBytes);
+        var loaded = e.loaded || 0;
+        var now = Date.now();
+        if (now - lastTime >= 500 && loaded > lastLoaded) {
+          speedBps = (loaded - lastLoaded) / ((now - lastTime) / 1000);
+          lastLoaded = loaded;
+          lastTime = now;
         }
+        setDownloadProgress(
+          true,
+          transferProgressPct(loaded, total),
+          formatTransferProgress(loaded, total, label, fileName, speedBps)
+        );
       });
       xhr.addEventListener('load', function () {
         downloadTransferXhr = null;
@@ -337,7 +393,21 @@
     downloadCancelled = false;
     downloadJobId = null;
     setDownloadProgress(true, 0, 'Ordner wird vorbereitet …');
-    transferDirectDownloadFromUrl(folderZipUrl(rel), folderName + '.zip')
+    fetchDownloadManifest(rel)
+      .then(function (manifest) {
+        if (isDownloadAbort()) throw new DownloadAbortError();
+        var expectedBytes = estimateZipDownloadSize(manifest);
+        var fileCount = manifest.total_files || (manifest.files && manifest.files.length) || 0;
+        setDownloadProgress(
+          true,
+          1,
+          'ZIP wird erstellt (' + fileCount + ' Dateien, ca. ' + formatSize(expectedBytes) + ') …'
+        );
+        return transferDirectDownloadFromUrl(folderZipUrl(rel), folderName + '.zip', {
+          expectedBytes: expectedBytes,
+          label: 'Download',
+        });
+      })
       .then(function () {
         if (isDownloadAbort()) return;
         setDownloadProgress(true, 100, 'Download abgeschlossen');
@@ -404,8 +474,11 @@
         if (!files.length) {
           throw new Error('Der Ordner enthält keine Dateien.');
         }
-        var total = files.length;
-        var done = 0;
+        var totalBytes = ctx.manifest.total_size || 0;
+        if (!totalBytes) {
+          files.forEach(function (file) { totalBytes += file.size || 0; });
+        }
+        var loadedBytes = 0;
         var chain = Promise.resolve();
         files.forEach(function (file) {
           chain = chain.then(function () {
@@ -413,17 +486,18 @@
             var fileRel = joinRel(rel, file.rel);
             setDownloadProgress(
               true,
-              Math.round((done / total) * 100),
-              'Download: ' + file.rel + ' (' + done + '/' + total + ')'
+              transferProgressPct(loadedBytes, totalBytes),
+              formatTransferProgress(loadedBytes, totalBytes, 'Download', file.rel, 0)
             );
             return fetchDownloadBlob(fileRel).then(function (blob) {
-              return writeBlobToDirectory(ctx.root, file.rel, blob);
+              return writeBlobToDirectory(ctx.root, file.rel, blob).then(function () {
+                loadedBytes += file.size || blob.size || 0;
+              });
             }).then(function () {
-              done += 1;
               setDownloadProgress(
                 true,
-                Math.round((done / total) * 100),
-                'Download: ' + file.rel + ' (' + done + '/' + total + ')'
+                transferProgressPct(loadedBytes, totalBytes),
+                formatTransferProgress(loadedBytes, totalBytes, 'Download', file.rel, 0)
               );
             });
           });
@@ -449,7 +523,7 @@
       });
   }
 
-  function startFileDownload(rel, displayName) {
+  function startFileDownload(rel, displayName, fileSize) {
     if (downloadBusy) {
       showToast('Es läuft bereits ein Download.', 'error');
       return;
@@ -457,7 +531,10 @@
     downloadCancelled = false;
     downloadJobId = null;
     setDownloadProgress(true, 0, 'Download wird gestartet …');
-    transferDirectDownload(rel, displayName)
+    transferDirectDownloadFromUrl(downloadUrl(rel), displayName, {
+      expectedBytes: fileSize || 0,
+      label: 'Download',
+    })
       .then(function () {
         if (isDownloadAbort()) return;
         setDownloadProgress(true, 100, 'Download abgeschlossen');
@@ -480,12 +557,12 @@
     return transferDirectDownloadFromUrl(downloadUrl(rel), fileName);
   }
 
-  function startDownload(rel, displayName, entryType) {
+  function startDownload(rel, displayName, entryType, fileSize) {
     if (entryType === 'dir') {
       startFolderDownload(rel, displayName);
       return;
     }
-    startFileDownload(rel, displayName);
+    startFileDownload(rel, displayName, fileSize);
   }
 
   function fileIconSvg(type) {
@@ -608,7 +685,7 @@
     dl.addEventListener('click', function (e) {
       e.preventDefault();
       e.stopPropagation();
-      startDownload(rel, entry.name, entry.type);
+      startDownload(rel, entry.name, entry.type, entry.size);
     });
     wrap.appendChild(dl);
 
@@ -631,7 +708,7 @@
     if (entry.type === 'dir') {
       loadBrowse(relPath(data, entry.name));
     } else {
-      startDownload(relPath(data, entry.name), entry.name, entry.type);
+      startDownload(relPath(data, entry.name), entry.name, entry.type, entry.size);
     }
   }
 
