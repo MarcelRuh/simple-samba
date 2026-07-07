@@ -49,6 +49,7 @@ PROTECTED_UNIX_USERS = frozenset({
 SYSTEMCTL = "/bin/systemctl"
 TESTPARM = "/usr/bin/testparm"
 PDBEDIT = "/usr/bin/pdbedit"
+SMBSTATUS = "/usr/bin/smbstatus"
 SMBPASSWD = "/usr/bin/smbpasswd"
 USERADD = "/usr/sbin/useradd"
 USERDEL = "/usr/sbin/userdel"
@@ -1349,6 +1350,73 @@ def cmd_app_update_status() -> tuple[bool, str]:
     return True, json.dumps(data, ensure_ascii=False)
 
 
+def _read_memory_stats() -> dict[str, int | float | str]:
+    mem_total = 0
+    mem_available = 0
+    mem_error = ""
+    try:
+        info: dict[str, int] = {}
+        with Path("/proc/meminfo").open(encoding="utf-8") as fh:
+            for line in fh:
+                key, _, value = line.partition(":")
+                if not value:
+                    continue
+                parts = value.strip().split()
+                if not parts:
+                    continue
+                info[key.strip()] = int(parts[0]) * 1024
+        mem_total = info.get("MemTotal", 0)
+        mem_available = info.get("MemAvailable", info.get("MemFree", 0))
+    except (OSError, ValueError) as exc:
+        mem_error = str(exc)
+    mem_used = max(0, mem_total - mem_available)
+    mem_percent = round(mem_used / mem_total * 100, 1) if mem_total else 0.0
+    return {
+        "mem_total": mem_total,
+        "mem_available": mem_available,
+        "mem_used": mem_used,
+        "mem_percent": mem_percent,
+        "mem_error": mem_error,
+    }
+
+
+def _read_load_stats() -> dict[str, int | float]:
+    load_1 = load_5 = load_15 = 0.0
+    try:
+        parts = Path("/proc/loadavg").read_text(encoding="utf-8").split()
+        load_1 = float(parts[0])
+        load_5 = float(parts[1])
+        load_15 = float(parts[2])
+    except (OSError, IndexError, ValueError):
+        pass
+    return {
+        "load_1": load_1,
+        "load_5": load_5,
+        "load_15": load_15,
+        "cpu_count": os.cpu_count() or 1,
+    }
+
+
+def _read_cpu_percent(sample_delay: float = 0.05) -> float | None:
+    def snapshot() -> tuple[int, int]:
+        line = Path("/proc/stat").read_text(encoding="utf-8").splitlines()[0].split()
+        values = [int(part) for part in line[1:]]
+        idle = values[3] + (values[4] if len(values) > 4 else 0)
+        return sum(values), idle
+
+    try:
+        total1, idle1 = snapshot()
+        time.sleep(sample_delay)
+        total2, idle2 = snapshot()
+        delta_total = total2 - total1
+        delta_idle = idle2 - idle1
+        if delta_total <= 0:
+            return None
+        return round((1 - delta_idle / delta_total) * 100, 1)
+    except (OSError, ValueError, IndexError):
+        return None
+
+
 def cmd_system_overview() -> tuple[bool, str]:
     base = get_shares_base()
     disk_error = ""
@@ -1370,6 +1438,9 @@ def cmd_system_overview() -> tuple[bool, str]:
         pass
 
     reboot = _reboot_required()
+    memory = _read_memory_stats()
+    load = _read_load_stats()
+    cpu_percent = _read_cpu_percent()
     payload = {
         "disk_path": str(base),
         "disk_total": disk_total,
@@ -1380,8 +1451,27 @@ def cmd_system_overview() -> tuple[bool, str]:
         "reboot_required": reboot,
         "reboot_reason": _reboot_required_reason() if reboot else "",
         "uptime_seconds": uptime_seconds,
+        "cpu_count": int(load["cpu_count"]),
+        "cpu_percent": cpu_percent,
+        "load_1": float(load["load_1"]),
+        "load_5": float(load["load_5"]),
+        "load_15": float(load["load_15"]),
+        "mem_total": int(memory["mem_total"]),
+        "mem_available": int(memory["mem_available"]),
+        "mem_used": int(memory["mem_used"]),
+        "mem_percent": float(memory["mem_percent"]),
+        "mem_error": str(memory["mem_error"]),
     }
     return True, json.dumps(payload, ensure_ascii=False)
+
+
+def cmd_smb_connections() -> tuple[bool, str]:
+    result = run_cmd([SMBSTATUS, "--json"], timeout=30)
+    output = (result.stdout or "").strip()
+    if result.returncode == 0 and output:
+        return True, output
+    err = ((result.stderr or "") + "\n" + (result.stdout or "")).strip()
+    return False, err or "smbstatus fehlgeschlagen."
 
 
 def cmd_apt_upgrade() -> tuple[bool, str]:
@@ -1427,6 +1517,7 @@ def handle_request(line: str, body: bytes) -> tuple[bool, str]:
         "list-importable-shares": lambda: cmd_list_importable_shares(),
         "import-shares": lambda: cmd_import_shares(body_text),
         "system-overview": lambda: cmd_system_overview(),
+        "smb-connections": lambda: cmd_smb_connections(),
         "system-reboot": lambda: cmd_system_reboot(),
         "files-list": lambda: cmd_files_list(arg),
         "files-mkdir": lambda: cmd_files_mkdir(arg),

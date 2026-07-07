@@ -11,7 +11,7 @@ from app.app_updates import get_app_update_info
 from app.auth import login_required
 from app.config import load_config
 from app.samba import SambaError, list_samba_users, read_shares, run_testparm, service_status
-from app.system import format_bytes, format_uptime, get_overview_safe
+from app.system import format_bytes, format_uptime, get_overview_safe, get_smb_status_safe
 
 INITIAL_PASSWORD_FILE = "/etc/simple-samba-ui/initial-password.txt"
 
@@ -54,10 +54,28 @@ def _dashboard_warnings(
     if overview and overview.disk_percent > 85:
         warnings.append({
             "level": "warn",
-            "message": f"Speicher zu {overview.disk_percent:.0f}% belegt "
+            "message": f"Festplatte zu {overview.disk_percent:.0f}% belegt "
             f"({format_bytes(overview.disk_used)} / {format_bytes(overview.disk_total)}).",
             "action_url": url_for("system_updates"),
             "action_label": "Updates",
+        })
+
+    if overview and overview.mem_percent > 90:
+        warnings.append({
+            "level": "warn",
+            "message": f"Arbeitsspeicher zu {overview.mem_percent:.0f}% belegt "
+            f"({format_bytes(overview.mem_used)} / {format_bytes(overview.mem_total)}).",
+            "action_url": url_for("status_page"),
+            "action_label": "Status",
+        })
+
+    if overview and overview.cpu_count > 0 and overview.load_1 > overview.cpu_count * 1.5:
+        warnings.append({
+            "level": "warn",
+            "message": f"Hohe Systemlast: Load {overview.load_1:.2f} "
+            f"({overview.cpu_count} Kerne).",
+            "action_url": url_for("status_page"),
+            "action_label": "Status",
         })
     elif overview_error:
         warnings.append({
@@ -103,6 +121,7 @@ def register(app: Flask) -> None:
     def index():
         config = load_config()
         overview, overview_error = get_overview_safe()
+        smb_status, smb_status_error = get_smb_status_safe()
         shares: list = []
         shares_active = 0
         shares_disabled = 0
@@ -150,6 +169,8 @@ def register(app: Flask) -> None:
             config=config,
             overview=overview,
             overview_error=overview_error,
+            smb_status=smb_status,
+            smb_status_error=smb_status_error,
             initial_password_exists=initial_password_exists,
             dashboard_warnings=_dashboard_warnings(
                 status=status,

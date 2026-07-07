@@ -30,6 +30,15 @@ class SystemOverview:
     reboot_reason: str
     uptime_seconds: int
     upgradable_count: int
+    cpu_count: int
+    cpu_percent: float | None
+    load_1: float
+    load_5: float
+    load_15: float
+    mem_total: int
+    mem_used: int
+    mem_percent: float
+    mem_error: str
 
 
 def _run_priv(command: str, timeout: int = 120) -> str:
@@ -123,6 +132,8 @@ def system_reboot() -> str:
 def get_system_overview() -> SystemOverview:
     raw = _run_priv_json("system-overview", timeout=30)
     packages, _ = check_upgradable_safe()
+    cpu_raw = raw.get("cpu_percent")
+    cpu_percent = float(cpu_raw) if cpu_raw is not None else None
     return SystemOverview(
         disk_path=str(raw.get("disk_path", "")),
         disk_total=int(raw.get("disk_total", 0)),
@@ -134,6 +145,15 @@ def get_system_overview() -> SystemOverview:
         reboot_reason=str(raw.get("reboot_reason", "")),
         uptime_seconds=int(raw.get("uptime_seconds", 0)),
         upgradable_count=len(packages),
+        cpu_count=int(raw.get("cpu_count", 1) or 1),
+        cpu_percent=cpu_percent,
+        load_1=float(raw.get("load_1", 0)),
+        load_5=float(raw.get("load_5", 0)),
+        load_15=float(raw.get("load_15", 0)),
+        mem_total=int(raw.get("mem_total", 0)),
+        mem_used=int(raw.get("mem_used", 0)),
+        mem_percent=float(raw.get("mem_percent", 0)),
+        mem_error=str(raw.get("mem_error", "")),
     )
 
 
@@ -148,5 +168,15 @@ def check_upgradable_safe() -> tuple[list[str], str | None]:
 def get_overview_safe() -> tuple[SystemOverview | None, str | None]:
     try:
         return get_system_overview(), None
+    except (SystemUpdateError, SambaError) as exc:
+        return None, str(exc)
+
+
+def get_smb_status_safe() -> tuple["SmbStatusSummary | None", str | None]:
+    from app.smbstatus_parser import SmbStatusSummary, parse_smbstatus_json
+
+    try:
+        raw = _run_priv_json("smb-connections", timeout=30)
+        return parse_smbstatus_json(raw), None
     except (SystemUpdateError, SambaError) as exc:
         return None, str(exc)

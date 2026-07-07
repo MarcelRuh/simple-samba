@@ -65,8 +65,41 @@
     <span class="stat-hint">Samba-Konten · Klicken zum Verwalten</span>
   </a>
   {% if overview %}
+  <div class="stat-card {% if overview.cpu_percent is not none and overview.cpu_percent > 85 %}accent{% elif overview.load_1 > overview.cpu_count %}accent{% endif %}">
+    <span class="stat-label">CPU</span>
+    <span class="stat-value" style="font-size:1.15rem">
+      {% if overview.cpu_percent is not none %}{{ overview.cpu_percent }}%{% else %}—{% endif %}
+    </span>
+    <span class="stat-hint">
+      Load {{ "%.2f"|format(overview.load_1) }} / {{ "%.2f"|format(overview.load_5) }} / {{ "%.2f"|format(overview.load_15) }}
+      <br>{{ overview.cpu_count }} Kern{% if overview.cpu_count != 1 %}e{% endif %}
+    </span>
+    {% if overview.cpu_percent is not none %}
+    <div class="dashboard-meter" aria-hidden="true">
+      <div class="dashboard-meter-bar" style="width: {{ [overview.cpu_percent, 100]|min }}%"></div>
+    </div>
+    {% endif %}
+  </div>
+  <div class="stat-card {% if overview.mem_percent > 90 %}accent{% endif %}">
+    <span class="stat-label">Arbeitsspeicher</span>
+    <span class="stat-value" style="font-size:1.15rem">{{ overview.mem_percent }}%</span>
+    <span class="stat-hint">
+      {% if overview.mem_total %}
+        {{ format_bytes(overview.mem_used) }} / {{ format_bytes(overview.mem_total) }}
+      {% elif overview.mem_error %}
+        {{ overview.mem_error }}
+      {% else %}
+        nicht verfügbar
+      {% endif %}
+    </span>
+    {% if overview.mem_total %}
+    <div class="dashboard-meter" aria-hidden="true">
+      <div class="dashboard-meter-bar" style="width: {{ [overview.mem_percent, 100]|min }}%"></div>
+    </div>
+    {% endif %}
+  </div>
   <div class="stat-card {% if overview.disk_percent > 85 %}accent{% endif %}">
-    <span class="stat-label">Speicher</span>
+    <span class="stat-label">Festplatte</span>
     <span class="stat-value" style="font-size:1.15rem">{{ overview.disk_percent }}%</span>
     <span class="stat-hint">
       {{ format_bytes(overview.disk_used) }} / {{ format_bytes(overview.disk_total) }}
@@ -128,6 +161,54 @@
     <span class="stat-label">System</span>
     <span class="stat-value"><span class="badge off">—</span></span>
     <span class="stat-hint">{{ overview_error }}</span>
+  </div>
+  {% endif %}
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <span class="card-title">Aktive SMB-Verbindungen</span>
+    {% if smb_status %}
+    <span class="hint">
+      {{ smb_status.session_count }} Sitzung{% if smb_status.session_count != 1 %}en{% endif %}
+      · {{ smb_status.open_files_count }} offene Datei{% if smb_status.open_files_count != 1 %}en{% endif %}
+    </span>
+    {% endif %}
+  </div>
+  {% if smb_status_error %}
+  <p class="notice notice-warn" style="margin:1rem">{{ smb_status_error }}</p>
+  {% elif smb_status and smb_status.connections %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Benutzer</th>
+          <th>Client</th>
+          <th>Freigabe</th>
+          <th>Verbunden</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for conn in smb_status.connections %}
+        <tr>
+          <td>{{ conn.user }}</td>
+          <td><code>{{ conn.machine }}</code></td>
+          <td>{{ conn.share }}</td>
+          <td class="hint">
+            {% if conn.connected_at %}
+              {{ conn.connected_at[:19]|replace('T', ' ') }}
+            {% else %}
+              —
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <p>Derzeit keine aktiven SMB-Verbindungen.</p>
   </div>
   {% endif %}
 </div>
