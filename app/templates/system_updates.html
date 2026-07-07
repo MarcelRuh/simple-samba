@@ -112,6 +112,23 @@
 </div>
 {% endif %}
 
+{% if reboot_required %}
+<div class="card card-accent">
+  <div class="card-header">
+    <span class="card-title">Neustart erforderlich</span>
+    <span class="badge warn">Ausstehend</span>
+  </div>
+  <p class="hint" style="margin-bottom:0.75rem">
+    {% if reboot_reason %}
+      {{ reboot_reason }}
+    {% else %}
+      Nach den letzten Updates ist ein Neustart nötig.
+    {% endif %}
+  </p>
+  <button type="button" class="btn btn-danger" id="btn-system-reboot">System neu starten</button>
+</div>
+{% endif %}
+
 <div class="card" id="update-progress-card" {% if not job_running %}hidden{% endif %}>
   <div class="card-header">
     <span class="card-title">Installation läuft</span>
@@ -143,7 +160,7 @@
     <div class="update-form update-form-danger">
       <p class="hint">
         Führt <code>apt update &amp;&amp; apt upgrade -y &amp;&amp; apt autoremove</code> aus.
-        Bei Bedarf Neustart des Systems.
+        Bei erforderlichem Neustart wirst du zur Bestätigung aufgefordert.
       </p>
       <button type="button" class="btn btn-primary" id="btn-apt-upgrade"
               {% if job_running %}disabled{% endif %}>
@@ -184,6 +201,7 @@
 <script>
   window.SAMBA_UPDATE_JOB_URL = {{ url_for('system_updates_job')|tojson }};
   window.SAMBA_UPDATE_START_URL = {{ url_for('system_updates_job_start')|tojson }};
+  window.SAMBA_SYSTEM_REBOOT_URL = {{ url_for('system_updates_reboot')|tojson }};
   window.SAMBA_UPDATE_JOB_RUNNING = {{ job_running|tojson }};
   window.SAMBA_APP_UPDATE_JOB_URL = {{ url_for('system_updates_app_job')|tojson }};
   window.SAMBA_APP_UPDATE_START_URL = {{ url_for('system_updates_app_start')|tojson }};

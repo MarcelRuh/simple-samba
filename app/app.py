@@ -35,7 +35,6 @@ from app.files import (
     stage_download,
     start_download_job,
 )
-from app.rate_limit import clear_login_attempts, is_login_locked, record_failed_login
 from app.samba import (
     SambaError,
     Share,
@@ -66,6 +65,7 @@ from app.system import (
     format_bytes,
     format_uptime,
     get_overview_safe,
+    system_reboot,
 )
 from app.app_updates import get_app_update_info
 from app.network import resolve_access_host
@@ -145,30 +145,14 @@ def create_app() -> Flask:
         if is_authenticated():
             return redirect(url_for("index"))
         error = None
-        client_ip = request.remote_addr or "unknown"
-        locked, wait_seconds = is_login_locked(client_ip)
         if request.method == "POST":
-            if locked:
-                minutes = max(1, wait_seconds // 60)
-                error = f"Zu viele Fehlversuche. Bitte ca. {minutes} Min. warten."
-            else:
-                username = (request.form.get("username") or "").strip()
-                password = request.form.get("password") or ""
-                if attempt_login(username, password):
-                    clear_login_attempts(client_ip)
-                    login_user(username)
-                    next_url = safe_redirect_target(request.args.get("next"), url_for("index"))
-                    return redirect(next_url)
-                record_failed_login(client_ip)
-                locked, wait_seconds = is_login_locked(client_ip)
-                if locked:
-                    minutes = max(1, wait_seconds // 60)
-                    error = f"Zu viele Fehlversuche. Bitte ca. {minutes} Min. warten."
-                else:
-                    error = "Ungültiger Benutzername oder Passwort."
-        elif locked:
-            minutes = max(1, wait_seconds // 60)
-            error = f"Zu viele Fehlversuche. Bitte ca. {minutes} Min. warten."
+            username = (request.form.get("username") or "").strip()
+            password = request.form.get("password") or ""
+            if attempt_login(username, password):
+                login_user(username)
+                next_url = safe_redirect_target(request.args.get("next"), url_for("index"))
+                return redirect(next_url)
+            error = "Ungültiger Benutzername oder Passwort."
         return render_template("login.html", error=error)
 
     @app.route("/logout", methods=["POST"])
@@ -743,6 +727,7 @@ def create_app() -> Flask:
         cfg = load_config()
         force_app_check = request.args.get("check_app") == "1"
         app_update = get_app_update_info(cfg, __version__, force_refresh=force_app_check)
+        overview, _overview_err = get_overview_safe()
 
         return render_template(
             "system_updates.html",
@@ -756,6 +741,8 @@ def create_app() -> Flask:
             app_update=app_update,
             app_job_running=app_job_running,
             app_job=app_job,
+            reboot_required=bool(overview and overview.reboot_required),
+            reboot_reason=overview.reboot_reason if overview else "",
         )
 
     @app.route("/system/updates/job/start", methods=["POST"])
@@ -791,6 +778,17 @@ def create_app() -> Flask:
             return jsonify(app_update_job_status())
         except SystemUpdateError as exc:
             return jsonify({"status": "error", "error": str(exc)}), 500
+
+    @app.route("/system/updates/reboot", methods=["POST"])
+    @login_required
+    def system_updates_reboot():
+        if not validate_csrf_token(request.headers.get("X-CSRF-Token")):
+            return jsonify({"ok": False, "error": "CSRF ungültig."}), 403
+        try:
+            message = system_reboot()
+            return jsonify({"ok": True, "message": message})
+        except SystemUpdateError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
 
     @app.errorhandler(403)
     def forbidden(_exc):

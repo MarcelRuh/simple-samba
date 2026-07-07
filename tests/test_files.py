@@ -27,6 +27,17 @@ def test_resolve_browser_path_outside_share():
         resolve_browser_path(share, "../../other", "/srv/raid5")
 
 
+def test_resolve_browser_path_rejects_symlink(tmp_path, monkeypatch):
+    share_dir = tmp_path / "data"
+    share_dir.mkdir()
+    secret = tmp_path / "secret"
+    secret.mkdir()
+    (share_dir / "link").symlink_to(secret)
+    share = Share(name="data", path=str(share_dir))
+    with pytest.raises(ValidationError, match="Symbolische Links"):
+        resolve_browser_path(share, "link", str(tmp_path))
+
+
 def test_commit_upload_includes_filename(monkeypatch):
     captured = {}
 

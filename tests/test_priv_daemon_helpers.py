@@ -27,6 +27,30 @@ def test_app_update_job_lock_defined():
     assert hasattr(lock, "acquire")
 
 
+def test_validate_browser_path_rejects_symlink(tmp_path, monkeypatch):
+    daemon = _load_daemon_module()
+    base = tmp_path / "shares"
+    share = base / "data"
+    share.mkdir(parents=True)
+    secret = tmp_path / "secret"
+    secret.mkdir()
+    (share / "link").symlink_to(secret)
+
+    monkeypatch.setattr(daemon, "get_shares_base", lambda: base)
+    monkeypatch.setattr(daemon, "_get_enabled_share_paths", lambda: [share.resolve()])
+
+    with pytest.raises(ValueError, match="Symbolische Links"):
+        daemon.validate_browser_path(str(share / "link"))
+
+
+def test_cmd_system_reboot_requires_flag(monkeypatch):
+    daemon = _load_daemon_module()
+    monkeypatch.setattr(daemon, "_reboot_required", lambda: False)
+    ok, msg = daemon.cmd_system_reboot()
+    assert not ok
+    assert "Kein Neustart" in msg
+
+
 def test_cleanup_stale_staging_removes_old_files(tmp_path, monkeypatch):
     daemon = _load_daemon_module()
     staging = tmp_path / "file-staging"

@@ -1,8 +1,6 @@
-"""Tests für Auth, CSRF, Rate-Limit und sichere Redirects."""
+"""Tests für Auth, CSRF und sichere Redirects."""
 
 from __future__ import annotations
-
-import time
 
 import pytest
 
@@ -13,7 +11,6 @@ from app.auth import (
     verify_password,
 )
 from app.csrf import CSRF_SESSION_KEY
-from app.rate_limit import clear_login_attempts, is_login_locked, record_failed_login
 
 
 def test_hash_and_verify_password():
@@ -45,32 +42,6 @@ def test_safe_redirect_target(target, expected):
     assert safe_redirect_target(target, "/") == expected
 
 
-def test_rate_limit_locks_after_max_attempts(monkeypatch, tmp_path):
-    attempts = tmp_path / "attempts.json"
-    monkeypatch.setattr("app.rate_limit.ATTEMPTS_PATH", attempts)
-    ip = "10.0.0.1"
-    for _ in range(5):
-        record_failed_login(ip)
-    locked, wait = is_login_locked(ip)
-    assert locked
-    assert wait > 0
-    clear_login_attempts(ip)
-    locked, _ = is_login_locked(ip)
-    assert not locked
-
-
-def test_rate_limit_expires(monkeypatch, tmp_path):
-    attempts = tmp_path / "attempts.json"
-    monkeypatch.setattr("app.rate_limit.ATTEMPTS_PATH", attempts)
-    monkeypatch.setattr("app.rate_limit.LOCKOUT_SECONDS", 1)
-    ip = "10.0.0.2"
-    for _ in range(5):
-        record_failed_login(ip)
-    assert is_login_locked(ip)[0]
-    time.sleep(1.1)
-    assert not is_login_locked(ip)[0]
-
-
 def _login_post(client, next_url: str = "", username: str = "admin", password: str = "testpass123"):
     query = f"/login?next={next_url}" if next_url else "/login"
     client.get(query)
@@ -94,6 +65,13 @@ def test_login_success_redirects_to_status(client):
     res = _login_post(client, next_url="/status")
     assert res.status_code == 302
     assert res.headers["Location"].endswith("/status")
+
+
+def test_login_allows_repeated_failed_attempts(client):
+    for _ in range(10):
+        res = _login_post(client, password="wrong")
+        assert res.status_code == 200
+        assert b"Ung\xc3\xbcltiger Benutzername oder Passwort" in res.data
 
 
 def test_csrf_required_for_post(client):

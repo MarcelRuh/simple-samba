@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from app.config import load_config
+from app.path_security import safe_resolve_under_root
 from app.samba import Share, SambaError, _priv_request, get_share_by_name, read_shares
 from app.validators import ValidationError, validate_share_name
 
@@ -26,26 +27,15 @@ def _share_for_name(shares: list[Share], name: str) -> Share:
 
 def resolve_browser_path(share: Share, rel_path: str, base_path: str) -> str:
     """Löst einen relativen Pfad innerhalb einer Freigabe auf."""
-    share_root = Path(share.path).resolve()
+    share_root = Path(share.path)
     base = Path(base_path).resolve()
     try:
-        share_root.relative_to(base)
+        share_root.resolve().relative_to(base)
     except ValueError as exc:
         raise ValidationError(f"Freigabepfad liegt nicht unter {base}.") from exc
 
     rel = (rel_path or "").strip().replace("\\", "/").lstrip("/")
-    if ".." in rel.split("/"):
-        raise ValidationError("Ungültiger Pfad.")
-
-    if not rel:
-        return str(share_root)
-
-    target = (share_root / rel).resolve()
-    try:
-        target.relative_to(share_root)
-    except ValueError as exc:
-        raise ValidationError("Pfad liegt außerhalb der Freigabe.") from exc
-    return str(target)
+    return str(safe_resolve_under_root(share_root, rel))
 
 
 def list_directory(share_name: str, rel_path: str = "") -> dict[str, Any]:

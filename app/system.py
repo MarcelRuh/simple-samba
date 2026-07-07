@@ -116,6 +116,10 @@ def app_update_job_status() -> dict:
     return _run_priv_json("app-update-status", timeout=30)
 
 
+def system_reboot() -> str:
+    return _run_priv("system-reboot", timeout=30)
+
+
 def get_system_overview() -> SystemOverview:
     raw = _run_priv_json("system-overview", timeout=30)
     packages, _ = check_upgradable_safe()

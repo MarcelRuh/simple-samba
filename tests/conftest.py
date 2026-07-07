@@ -38,9 +38,7 @@ def app_config(tmp_path):
 @pytest.fixture
 def app(app_config, monkeypatch):
     config_path, _data = app_config
-    attempts_path = config_path.parent / "login_attempts.json"
     monkeypatch.setattr("app.config.CONFIG_PATH", config_path)
-    monkeypatch.setattr("app.rate_limit.ATTEMPTS_PATH", attempts_path)
 
     from app.app import create_app
 

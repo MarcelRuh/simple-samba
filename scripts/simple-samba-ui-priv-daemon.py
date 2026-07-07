@@ -77,7 +77,7 @@ PHASE_LABELS = {
     "update": "Paketlisten aktualisieren",
     "upgrade": "Updates installieren",
     "autoremove": "Nicht benötigte Pakete entfernen",
-    "reboot": "Neustart vorbereiten",
+    "reboot": "Neustart ausstehend",
     "done": "Abgeschlossen",
 }
 NOLOGIN_SHELLS = {"/usr/sbin/nologin", "/bin/false", "/usr/bin/false"}
@@ -515,16 +515,34 @@ def _get_enabled_share_paths() -> list[Path]:
 
 def validate_browser_path(path_str: str) -> Path:
     """Pfad muss unter Basisverzeichnis und unter einer aktiven Freigabe liegen."""
-    resolved = validate_share_path_str(path_str)
+    path_str = (path_str or "").strip()
+    if not path_str.startswith("/"):
+        raise ValueError(f"Ungültiger Pfad (nicht absolut): {path_str}")
+    if ".." in path_str.split("/"):
+        raise ValueError(f"Pfad darf keine .. enthalten: {path_str}")
+
+    _ensure_app_import_path()
+    from app.path_security import relative_path_parts, safe_resolve_under_root
+    from app.validators import ValidationError as PathValidationError
+
+    base = get_shares_base().resolve()
+    path = Path(path_str)
+    if relative_path_parts(base, path) is None:
+        raise ValueError(f"Pfad {path_str} liegt nicht unter {base}")
+    if path.resolve() == base:
+        raise ValueError("Das Basisverzeichnis selbst darf nicht verwendet werden.")
+
     roots = _get_enabled_share_paths()
     if not roots:
         raise ValueError("Keine aktiven Freigaben konfiguriert.")
     for root in roots:
-        try:
-            resolved.relative_to(root)
-            return resolved
-        except ValueError:
+        rel = relative_path_parts(root, path)
+        if rel is None:
             continue
+        try:
+            return safe_resolve_under_root(root, rel)
+        except PathValidationError as exc:
+            raise ValueError(str(exc)) from exc
     raise ValueError("Pfad liegt nicht unter einer Freigabe.")
 
 
@@ -1322,13 +1340,19 @@ def _run_apt_upgrade_core(*, track_job: bool) -> tuple[bool, str, bool]:
         reboot_msg = "\n\n=== Neustart ===\nNeustart erforderlich"
         if reason:
             reboot_msg += f": {reason}"
-        reboot_msg += f"\nSystem startet in ca. {REBOOT_DELAY_SECONDS} Sekunden neu."
+        reboot_msg += "\nBitte in der Web-UI bestätigen."
         msg += reboot_msg
         if track_job:
             _append_job_log(reboot_msg)
-        _schedule_system_reboot()
 
     return True, msg, reboot_pending
+
+
+def cmd_system_reboot() -> tuple[bool, str]:
+    if not _reboot_required():
+        return False, "Kein Neustart erforderlich."
+    _schedule_system_reboot()
+    return True, f"System startet in ca. {REBOOT_DELAY_SECONDS} Sekunden neu."
 
 
 def _apt_upgrade_worker() -> None:
@@ -1585,6 +1609,7 @@ def handle_request(line: str, body: bytes) -> tuple[bool, str]:
         "list-importable-shares": lambda: cmd_list_importable_shares(),
         "import-shares": lambda: cmd_import_shares(body_text),
         "system-overview": lambda: cmd_system_overview(),
+        "system-reboot": lambda: cmd_system_reboot(),
         "files-list": lambda: cmd_files_list(arg),
         "files-mkdir": lambda: cmd_files_mkdir(arg),
         "files-delete": lambda: cmd_files_delete(arg),

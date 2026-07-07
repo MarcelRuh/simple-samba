@@ -101,6 +101,65 @@
     stack.appendChild(toast);
   }
 
+  function confirmSystemReboot() {
+    if (!window.SAMBA_SYSTEM_REBOOT_URL || !window.SambaUI) {
+      return Promise.resolve(false);
+    }
+
+    return window.SambaUI.confirm(
+      'Das System wird neu gestartet. Offene Verbindungen werden getrennt. Fortfahren?',
+      { title: 'Neustart bestätigen', danger: true, okLabel: 'Neustart' }
+    ).then(function (ok) {
+      if (!ok) return false;
+
+      return fetch(window.SAMBA_SYSTEM_REBOOT_URL, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+          'X-CSRF-Token': csrfToken(),
+          'Content-Type': 'application/json',
+        },
+      })
+        .then(function (res) {
+          return res.json().then(function (body) {
+            return { ok: res.ok, body: body };
+          });
+        })
+        .then(function (result) {
+          if (result.ok) {
+            showToast(result.body.message || 'System startet neu …', 'success');
+            return true;
+          }
+          showToast(result.body.error || 'Neustart fehlgeschlagen.', 'error');
+          return false;
+        })
+        .catch(function () {
+          showToast('Verbindungsfehler beim Neustart.', 'error');
+          return false;
+        });
+    });
+  }
+
+  function promptRebootAfterUpgrade() {
+    if (!window.SambaUI) {
+      showToast('Updates installiert. Neustart ausstehend.', 'success');
+      setTimeout(function () { window.location.reload(); }, 1500);
+      return;
+    }
+
+    window.SambaUI.confirm(
+      'Updates installiert. Ein Neustart ist erforderlich. Jetzt neu starten?',
+      { title: 'Neustart bestätigen', danger: true, okLabel: 'Neustart', cancelLabel: 'Später' }
+    ).then(function (ok) {
+      if (ok) {
+        confirmSystemReboot();
+        return;
+      }
+      showToast('Updates installiert. Neustart ausstehend.', 'success');
+      setTimeout(function () { window.location.reload(); }, 1500);
+    });
+  }
+
   function startJob(options) {
     var url = options.startUrl;
     if (!url || !window.SambaUI) return;
@@ -170,11 +229,11 @@
       buttonId: 'btn-apt-upgrade',
       buttonIdleText: 'Updates installieren',
       confirmTitle: 'Updates installieren',
-      confirmText: 'Updates installieren? Bei Bedarf wird das System neu gestartet.',
+      confirmText: 'Updates installieren? Bei erforderlichem Neustart wirst du zur Bestätigung aufgefordert.',
       danger: true,
       onSuccess: function (data) {
         if (data.reboot_pending) {
-          showToast('Updates installiert – Neustart läuft …', 'success');
+          promptRebootAfterUpgrade();
         } else {
           showToast('Updates wurden installiert.', 'success');
           setTimeout(function () { window.location.reload(); }, 1500);
@@ -187,6 +246,11 @@
     var upgradeBtn = document.getElementById('btn-apt-upgrade');
     if (upgradeBtn) {
       upgradeBtn.addEventListener('click', startUpgrade);
+    }
+
+    var rebootBtn = document.getElementById('btn-system-reboot');
+    if (rebootBtn) {
+      rebootBtn.addEventListener('click', confirmSystemReboot);
     }
 
     var appUpdateBtn = document.getElementById('btn-app-update');
