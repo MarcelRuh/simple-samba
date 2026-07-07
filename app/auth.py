@@ -30,11 +30,18 @@ def configure_session(app: Flask) -> None:
     app.permanent_session_lifetime = timedelta(hours=lifetime)
     app.config["SESSION_COOKIE_HTTPONLY"] = True
     app.config["SESSION_COOKIE_SAMESITE"] = "Strict"
-    app.config["SESSION_COOKIE_SECURE"] = False  # internes HTTP ohne TLS
+    app.config["SESSION_COOKIE_SECURE"] = False
 
     @app.before_request
     def _session_security() -> None:
         session.permanent = True
+        secure = request.is_secure
+        try:
+            cfg = load_config()
+            secure = secure or bool(cfg.get("tls_enabled"))
+        except Exception:
+            pass
+        app.config["SESSION_COOKIE_SECURE"] = secure
 
 
 def login_user(username: str) -> None:

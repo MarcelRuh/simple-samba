@@ -13,6 +13,7 @@
   var loadingEl = document.getElementById('files-loading');
   var emptyEl = document.getElementById('files-empty');
   var uploadInput = document.getElementById('files-upload-input');
+  var uploadFolderInput = document.getElementById('files-upload-folder-input');
   var uploadLabel = document.getElementById('files-upload-label');
   var mkdirBtn = document.getElementById('files-mkdir-btn');
   var refreshBtn = document.getElementById('files-refresh-btn');
@@ -998,9 +999,9 @@
     if (lastData) renderView(lastData);
   }
 
-  uploadInput.addEventListener('change', function () {
-    var files = uploadInput.files ? Array.prototype.slice.call(uploadInput.files) : [];
-    uploadInput.value = '';
+  function handleUploadInput(fileInput) {
+    var files = fileInput.files ? Array.prototype.slice.call(fileInput.files) : [];
+    fileInput.value = '';
     if (!files.length) return;
     var items = files.map(function (file) {
       return {
@@ -1009,7 +1010,17 @@
       };
     });
     uploadFileItems(items);
+  }
+
+  uploadInput.addEventListener('change', function () {
+    handleUploadInput(uploadInput);
   });
+
+  if (uploadFolderInput) {
+    uploadFolderInput.addEventListener('change', function () {
+      handleUploadInput(uploadFolderInput);
+    });
+  }
 
   mkdirBtn.addEventListener('click', function () {
     if (readOnly) return;

@@ -219,6 +219,23 @@ install_systemd_units() {
         "${src}/etc/simple-samba-ui-priv.service" >/etc/systemd/system/simple-samba-ui-priv.service
 }
 
+ensure_tls_certificates() {
+    local tls_dir="${CONFIG_DIR}/tls"
+    local cert="${tls_dir}/server.crt"
+    local key="${tls_dir}/server.key"
+    mkdir -p "${tls_dir}"
+    if [[ ! -f "${cert}" || ! -f "${key}" ]]; then
+        info "Erzeuge selbstsigniertes TLS-Zertifikat …"
+        openssl req -x509 -newkey rsa:2048 -nodes \
+            -keyout "${key}" -out "${cert}" -days 3650 \
+            -subj "/CN=simple-samba-ui/O=Simple Samba UI" 2>/dev/null
+    fi
+    chown -R samba-ui:samba-ui "${tls_dir}" 2>/dev/null || true
+    chmod 750 "${tls_dir}"
+    chmod 640 "${key}"
+    chmod 644 "${cert}"
+}
+
 set_permissions() {
     info "Setze Berechtigungen …"
     chown -R samba-ui:samba-ui "${INSTALL_DIR}"
@@ -226,6 +243,7 @@ set_permissions() {
     chmod 755 "${INSTALL_DIR}/scripts/simple-samba-ui-priv-daemon.py" 2>/dev/null || true
     chmod 755 "${INSTALL_DIR}/scripts/run-app-update.py" 2>/dev/null || true
     chmod 755 "${INSTALL_DIR}/scripts/bootstrap-import-shares.py" 2>/dev/null || true
+    chmod 755 "${INSTALL_DIR}/scripts/enable-tls.sh" 2>/dev/null || true
     mkdir -p "${CONFIG_DIR}" "${BACKUP_DIR}"
     chown -R samba-ui:samba-ui "${CONFIG_DIR}"
     chmod 750 "${CONFIG_DIR}"
@@ -376,10 +394,17 @@ write_initial_config() {
     local shares_base="$3"
     local bind_host="$4"
     local bind_port="$5"
+    local tls_enabled="${6:-false}"
     local session_secret password_hash
 
     session_secret="$(openssl rand -hex 32)"
     password_hash="$(generate_bcrypt_hash "${admin_password}")"
+    if [[ "${tls_enabled}" == "true" ]]; then
+        ensure_tls_certificates
+        tls_py="True"
+    else
+        tls_py="False"
+    fi
 
     mkdir -p "${CONFIG_DIR}"
     python3 - <<PY
@@ -395,6 +420,9 @@ cfg = {
     "admin_password_hash": """${password_hash}""",
     "session_secret": "${session_secret}",
     "session_lifetime_hours": 8,
+    "tls_enabled": ${tls_py},
+    "tls_cert_file": "${CONFIG_DIR}/tls/server.crt",
+    "tls_key_file": "${CONFIG_DIR}/tls/server.key",
 }
 path = Path("${CONFIG_FILE}")
 path.write_text(json.dumps(cfg, indent=2, ensure_ascii=False) + "\\n", encoding="utf-8")

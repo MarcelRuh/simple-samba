@@ -9,6 +9,7 @@ from app.config import DEFAULT_MAX_UPLOAD_BYTES, ConfigError, load_config
 from app.csrf import get_csrf_token, validate_csrf_token
 from app.app_updates import get_app_update_info
 from app.network import resolve_access_host
+from app.tls import is_tls_enabled, public_url
 from app.routes import register_routes
 
 
@@ -38,6 +39,12 @@ def create_app() -> Flask:
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'"
         )
+        try:
+            cfg = load_config()
+            if request.is_secure and is_tls_enabled(cfg):
+                response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        except Exception:
+            pass
         return response
 
     @app.context_processor
@@ -59,6 +66,8 @@ def create_app() -> Flask:
             "app_version": __version__,
             "config": cfg,
             "access_host": access_host,
+            "tls_enabled": is_tls_enabled(cfg),
+            "public_url": public_url(cfg, access_host),
             "csrf_token": get_csrf_token,
             "app_update": app_update,
         }

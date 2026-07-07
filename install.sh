@@ -10,6 +10,7 @@ ADMIN_USER="admin"
 SHARES_BASE="${SIMPLE_SAMBA_SHARES_BASE:-/srv/shares}"
 BIND_HOST="${SIMPLE_SAMBA_BIND_HOST:-}"
 BIND_PORT="${SIMPLE_SAMBA_BIND_PORT:-8080}"
+TLS_ENABLED="${SIMPLE_SAMBA_TLS:-false}"
 UPGRADE=false
 
 _is_interactive() {
@@ -58,6 +59,11 @@ if _is_interactive; then
 
     read -rp "Bind-Port [${BIND_PORT}]: " input_port
     BIND_PORT="${input_port:-${BIND_PORT}}"
+
+    read -rp "HTTPS aktivieren (selbstsigniertes Zertifikat)? (ja/nein) [nein]: " input_tls
+    if [[ "${input_tls:-nein}" == "ja" ]]; then
+        TLS_ENABLED="true"
+    fi
 else
     if [[ -z "${BIND_HOST}" ]]; then
         BIND_HOST="$(detect_primary_ipv4)"
@@ -70,6 +76,7 @@ else
         error "Ungültiger SIMPLE_SAMBA_BIND_HOST: ${SIMPLE_SAMBA_BIND_HOST}"
     fi
     BIND_PORT="${SIMPLE_SAMBA_BIND_PORT:-${BIND_PORT}}"
+    TLS_ENABLED="${SIMPLE_SAMBA_TLS:-${TLS_ENABLED}}"
 fi
 
 ACCESS_HOST="$(resolve_access_host "${BIND_HOST}")"
@@ -84,7 +91,7 @@ if [[ "${UPGRADE}" == true ]]; then
     info "Bestehende Konfiguration wird beibehalten."
 else
     ADMIN_PASSWORD="$(openssl rand -base64 18 | tr -d '/+=' | head -c 16)"
-    write_initial_config "${ADMIN_USER}" "${ADMIN_PASSWORD}" "${SHARES_BASE}" "${BIND_HOST}" "${BIND_PORT}"
+    write_initial_config "${ADMIN_USER}" "${ADMIN_PASSWORD}" "${SHARES_BASE}" "${BIND_HOST}" "${BIND_PORT}" "${TLS_ENABLED}"
 fi
 
 auto_import_smb_shares
@@ -95,10 +102,16 @@ start_services
 systemctl reload smbd 2>/dev/null || systemctl restart smbd
 verify_installation
 
+if [[ "${TLS_ENABLED}" == "true" ]]; then
+    URL_SCHEME="https"
+else
+    URL_SCHEME="http"
+fi
+
 echo ""
 echo -e "${GREEN}Installation abgeschlossen.${NC}"
 echo ""
-echo "  URL:      http://${ACCESS_HOST}:${BIND_PORT}/"
+echo "  URL:      ${URL_SCHEME}://${ACCESS_HOST}:${BIND_PORT}/"
 if [[ "${BIND_HOST}" == "0.0.0.0" || "${BIND_HOST}" == "::" ]]; then
     echo "  Lauscht:  ${BIND_HOST}:${BIND_PORT} (alle Netzwerk-Interfaces)"
 fi
@@ -111,4 +124,7 @@ echo ""
 echo "  Quellverzeichnis: ${SCRIPT_DIR}"
 echo "  Deployment:      ${INSTALL_DIR}"
 echo "  Update:          bash ${SCRIPT_DIR}/update.sh"
+if [[ "${TLS_ENABLED}" != "true" ]]; then
+    echo "  HTTPS:           sudo bash ${SCRIPT_DIR}/scripts/enable-tls.sh"
+fi
 echo ""

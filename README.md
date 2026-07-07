@@ -28,7 +28,10 @@ Interne Web-Verwaltung für Samba-Freigaben auf Debian – klein, ohne Reverse P
 - **App-Update-Hinweis** – prüft GitHub auf neuere Versionen (Cache: 6 h)
 - **App-Update-Button** – GitHub-Update direkt aus der UI
 - **Datei-Explorer** – Dateien in Freigaben durchsuchen, hoch- und herunterladen (mit Fortschritt & Abbruch)
+- **Ordner-Upload** per Button (`webkitdirectory`)
 - Ordner-Download als **Streaming-ZIP** (HTTP) oder direkt in Zielordner (HTTPS)
+- **HTTPS** optional mit selbstsigniertem Zertifikat (`scripts/enable-tls.sh`)
+- Dashboard mit **Sicherheits-Warnungen** (Gast-Freigaben, fehlende Benutzer, HTTP-Hinweis)
 - Downloads **direkt aus Freigaben** ohne Kopie auf die Systemplatte
 - Datei-Explorer: **Sortierung** (Name, Größe, Datum) und Hinweis zu HTTP/ZIP vs. HTTPS
 - Konfigurierbares **Upload-Limit** (`max_upload_bytes` in `config.json`)
@@ -183,11 +186,26 @@ Nach Installation:
 | `/etc/samba/smb-shares.conf` | Verwaltete Freigaben |
 | `/run/simple-samba-ui/priv.sock` | Privilege-Socket |
 
+## HTTPS (optional)
+
+Ordner-Downloads im Datei-Explorer nutzen im Browser die **Ordnerstruktur** nur über HTTPS
+(`window.showDirectoryPicker`). Über HTTP werden Ordner als ZIP gestreamt.
+
+```bash
+sudo bash /opt/simple-samba-ui/scripts/enable-tls.sh
+systemctl restart simple-samba-ui
+```
+
+Erzeugt ein selbstsigniertes Zertifikat unter `/etc/simple-samba-ui/tls/`. Die Browser-Warnung ist bei internem Gebrauch normal.
+
+Bei der Erstinstallation kann HTTPS interaktiv aktiviert werden, oder per `SIMPLE_SAMBA_TLS=1`.
+
 ## Sicherheit
 
 - Web-UI läuft **nicht als root**
 - Admin-Passwort als **bcrypt-Hash**
-- Kein TLS eingebaut – bei Bedarf SSH-Tunnel nutzen
+- **HTTPS** optional (siehe oben) – alternativ SSH-Tunnel
+- Dashboard warnt bei Gast-Freigaben und Shares ohne Benutzer
 - Nach Installation: Admin-Passwort ändern, `initial-password.txt` löschen
 - Nicht ungefiltert ins Internet stellen
 - Temporäre Upload-/Download-Dateien werden automatisch bereinigt (älter als 1 Stunde)

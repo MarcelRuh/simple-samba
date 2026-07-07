@@ -10,8 +10,10 @@ from app import __version__
 from app.app_updates import get_app_update_info
 from app.auth import login_required
 from app.config import load_config
+from app.security_checks import share_security_warnings
 from app.samba import SambaError, list_samba_users, read_shares, run_testparm, service_status
 from app.system import format_bytes, format_uptime, get_overview_safe, get_smb_status_safe
+from app.tls import is_tls_enabled
 
 INITIAL_PASSWORD_FILE = "/etc/simple-samba-ui/initial-password.txt"
 
@@ -32,6 +34,8 @@ def _dashboard_warnings(
     config_ok: bool | None,
     initial_password_exists: bool,
     app_update,
+    shares: list,
+    config,
 ) -> list[dict[str, str]]:
     warnings: list[dict[str, str]] = []
 
@@ -112,6 +116,23 @@ def _dashboard_warnings(
             "action_label": "Passwort ändern",
         })
 
+    if config and not is_tls_enabled(config):
+        warnings.append({
+            "level": "warn",
+            "message": "Web-UI läuft über HTTP – Ordner-Downloads werden als ZIP bereitgestellt. "
+            "HTTPS aktivieren: sudo bash /opt/simple-samba-ui/scripts/enable-tls.sh",
+            "action_url": "",
+            "action_label": "",
+        })
+
+    for item in share_security_warnings(shares):
+        warnings.append({
+            "level": item["level"],
+            "message": item["message"],
+            "action_url": url_for("share_edit", share_name=item["share_name"]),
+            "action_label": "Freigabe bearbeiten",
+        })
+
     return warnings
 
 
@@ -179,6 +200,8 @@ def register(app: Flask) -> None:
                 config_ok=config_ok,
                 initial_password_exists=initial_password_exists,
                 app_update=app_update_info,
+                shares=shares,
+                config=config,
             ),
             format_bytes=format_bytes,
             format_uptime=format_uptime,

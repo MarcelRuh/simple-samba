@@ -1,15 +1,28 @@
-"""Gunicorn-Konfiguration – liest Bind-Adresse aus config.json."""
+"""Gunicorn-Konfiguration – liest Bind-Adresse und TLS aus config.json."""
 
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 CONFIG_PATH = Path("/etc/simple-samba-ui/config.json")
 
-def _load():
+_DEFAULT = {
+    "bind_host": "127.0.0.1",
+    "bind_port": 8080,
+    "tls_enabled": False,
+    "tls_cert_file": "/etc/simple-samba-ui/tls/server.crt",
+    "tls_key_file": "/etc/simple-samba-ui/tls/server.key",
+}
+
+
+def _load() -> dict:
+    if not CONFIG_PATH.is_file():
+        return dict(_DEFAULT)
     with CONFIG_PATH.open(encoding="utf-8") as fh:
-        return json.load(fh)
+        return {**_DEFAULT, **json.load(fh)}
+
 
 _cfg = _load()
 
@@ -26,6 +39,16 @@ errorlog = "-"
 loglevel = "info"
 capture_output = True
 
-# Sicherheit: nur intern
 forwarded_allow_ips = "127.0.0.1"
 proxy_allow_ips = "127.0.0.1"
+
+if _cfg.get("tls_enabled"):
+    certfile = str(_cfg.get("tls_cert_file") or _DEFAULT["tls_cert_file"])
+    keyfile = str(_cfg.get("tls_key_file") or _DEFAULT["tls_key_file"])
+    if not Path(certfile).is_file() or not Path(keyfile).is_file():
+        print(
+            f"TLS aktiviert, aber Zertifikat fehlt ({certfile}). "
+            "Bitte scripts/enable-tls.sh ausführen.",
+            file=sys.stderr,
+        )
+        sys.exit(1)

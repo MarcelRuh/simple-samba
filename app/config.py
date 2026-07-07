@@ -27,6 +27,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "update_check_interval_hours": 6,
     "source_clone_dir": "/usr/local/src/simple-samba",
     "max_upload_bytes": DEFAULT_MAX_UPLOAD_BYTES,
+    "tls_enabled": False,
+    "tls_cert_file": "/etc/simple-samba-ui/tls/server.crt",
+    "tls_key_file": "/etc/simple-samba-ui/tls/server.key",
 }
 
 
