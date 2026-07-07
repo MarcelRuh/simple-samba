@@ -10,6 +10,8 @@ from typing import Any
 
 CONFIG_PATH = Path("/etc/simple-samba-ui/config.json")
 
+DEFAULT_MAX_UPLOAD_BYTES = 512 * 1024 * 1024
+
 DEFAULT_CONFIG: dict[str, Any] = {
     "bind_host": "127.0.0.1",
     "bind_port": 8080,
@@ -24,6 +26,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "update_check_enabled": True,
     "update_check_interval_hours": 6,
     "source_clone_dir": "/usr/local/src/simple-samba",
+    "max_upload_bytes": DEFAULT_MAX_UPLOAD_BYTES,
 }
 
 

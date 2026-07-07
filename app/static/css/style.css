@@ -1349,6 +1349,28 @@ pre.output {
   outline-offset: 1px;
 }
 
+.files-sort {
+  padding: 0.4rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.85rem;
+}
+
+.files-download-hint {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin: 0 1rem 0.75rem;
+  padding: 0.65rem 0.85rem;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--accent) 25%, var(--border));
+  font-size: 0.875rem;
+  line-height: 1.4;
+}
+
 .files-breadcrumb {
   display: flex;
   align-items: center;
@@ -1725,6 +1747,32 @@ pre.output {
 
   .files-search {
     width: 6rem;
+  }
+
+  .files-header {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .files-header-nav {
+    min-width: 0;
+    flex: 1 1 12rem;
+  }
+
+  .files-breadcrumb {
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+
+  .files-sort {
+    max-width: 6.5rem;
+    padding: 0.35rem 0.5rem;
+    font-size: 0.85rem;
+  }
+
+  .files-download-hint {
+    margin: 0 0.75rem 0.5rem;
+    font-size: 0.85rem;
   }
 
   .files-grid {

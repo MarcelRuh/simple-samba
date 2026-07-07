@@ -686,57 +686,8 @@ def cmd_files_download_manifest(path_str: str) -> tuple[bool, str]:
     return True, json.dumps(payload, ensure_ascii=False)
 
 
-def _download_job_path(job_id: str) -> Path:
-    safe = "".join(ch for ch in job_id if ch.isalnum())
-    return DOWNLOAD_JOBS_DIR / f"{safe}.json"
-
-
-def _chown_download_job(path: Path) -> None:
-    try:
-        gid = grp.getgrnam(ALLOWED_UID_NAME).gr_gid
-        os.chown(path, 0, gid)
-        os.chmod(path, 0o660)
-    except (KeyError, OSError):
-        pass
-
-
-def _write_download_job(job_id: str, data: dict) -> None:
-    DOWNLOAD_JOBS_DIR.mkdir(parents=True, exist_ok=True, mode=0o750)
-    path = _download_job_path(job_id)
-    path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
-    _chown_download_job(path)
-
-
-def _read_download_job(job_id: str) -> dict | None:
-    path = _download_job_path(job_id)
-    if not path.is_file():
-        return None
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None
-
-
-def _download_job_cancelled(job_id: str) -> bool:
-    data = _read_download_job(job_id)
-    return bool(data and data.get("status") == "cancelled")
-
-
-def _cleanup_download_staging(job_id: str, staging: Path | None = None) -> None:
-    if staging is not None:
-        try:
-            staging.unlink(missing_ok=True)
-        except OSError:
-            pass
-    try:
-        for path in FILE_STAGING_DIR.glob(f"dl-{job_id}-*"):
-            path.unlink(missing_ok=True)
-    except OSError:
-        pass
-
-
 def cleanup_stale_staging(max_age_seconds: int = STAGING_MAX_AGE_SECONDS) -> tuple[int, int]:
-    """Entfernt veraltete Staging-Dateien und Download-Job-Metadaten."""
+    """Entfernt veraltete Staging-Dateien und alte Job-Metadaten."""
     now = time.time()
     staging_removed = 0
     jobs_removed = 0
@@ -759,16 +710,9 @@ def cleanup_stale_staging(max_age_seconds: int = STAGING_MAX_AGE_SECONDS) -> tup
         DOWNLOAD_JOBS_DIR.mkdir(parents=True, exist_ok=True, mode=0o750)
         for path in DOWNLOAD_JOBS_DIR.glob("*.json"):
             try:
-                if now - path.stat().st_mtime <= max_age_seconds:
-                    continue
-                data = _read_download_job(path.stem)
-                if data and not data.get("direct"):
-                    staging = data.get("staging")
-                    if staging:
-                        Path(staging).unlink(missing_ok=True)
-                    _cleanup_download_staging(path.stem)
-                path.unlink(missing_ok=True)
-                jobs_removed += 1
+                if now - path.stat().st_mtime > max_age_seconds:
+                    path.unlink(missing_ok=True)
+                    jobs_removed += 1
             except OSError:
                 pass
     except OSError:
@@ -807,142 +751,6 @@ def _staging_cleanup_loop() -> None:
             log(f"Staging-Cleanup fehlgeschlagen: {exc}")
 
 
-def _abort_if_cancelled(job_id: str, staging: Path | None = None) -> bool:
-    if not _download_job_cancelled(job_id):
-        return False
-    _cleanup_download_staging(job_id, staging)
-    return True
-
-
-def _run_download_job(job_id: str, source: Path) -> None:
-    try:
-        if _abort_if_cancelled(job_id):
-            return
-
-        if source.is_dir():
-            _write_download_job(job_id, {
-                "status": "error",
-                "error": "Ordner werden dateiweise heruntergeladen.",
-                "progress": 0,
-            })
-            return
-
-        if not source.is_file():
-            _write_download_job(job_id, {
-                "status": "error",
-                "error": "Pfad nicht gefunden.",
-                "progress": 0,
-            })
-            return
-
-        if _abort_if_cancelled(job_id):
-            return
-
-        try:
-            size = source.stat().st_size
-        except OSError as exc:
-            _write_download_job(job_id, {
-                "status": "error",
-                "error": f"Datei nicht lesbar: {exc}",
-                "progress": 0,
-            })
-            return
-
-        _write_download_job(job_id, {
-            "status": "ready",
-            "phase": "ready",
-            "phase_label": "Download bereit",
-            "progress": 100,
-            "name": source.name,
-            "staging": str(source),
-            "size": size,
-            "direct": True,
-        })
-    except OSError as exc:
-        _write_download_job(job_id, {
-            "status": "error",
-            "error": f"Download fehlgeschlagen: {exc}",
-            "progress": 0,
-        })
-
-
-def cmd_files_download_start(path_str: str) -> tuple[bool, str]:
-    try:
-        source = validate_browser_path(path_str)
-    except ValueError as exc:
-        return False, str(exc)
-
-    if source.is_dir():
-        return False, "Ordner werden dateiweise heruntergeladen."
-
-    job_id = secrets.token_hex(12)
-    _write_download_job(job_id, {
-        "status": "running",
-        "phase": "start",
-        "phase_label": "Download wird gestartet …",
-        "progress": 0,
-    })
-    thread = threading.Thread(
-        target=_run_download_job,
-        args=(job_id, source),
-        daemon=True,
-    )
-    thread.start()
-    return True, json.dumps({"job_id": job_id}, ensure_ascii=False)
-
-
-def cmd_files_download_status(job_id: str) -> tuple[bool, str]:
-    job_id = (job_id or "").strip()
-    if not job_id:
-        return False, "job_id fehlt."
-    data = _read_download_job(job_id)
-    if not data:
-        return False, "Download-Job nicht gefunden."
-    return True, json.dumps(data, ensure_ascii=False)
-
-
-def cmd_files_download_cleanup(job_id: str) -> tuple[bool, str]:
-    job_id = (job_id or "").strip()
-    data = _read_download_job(job_id)
-    if data:
-        if not data.get("direct"):
-            staging = data.get("staging")
-            if staging:
-                try:
-                    Path(staging).unlink(missing_ok=True)
-                except OSError:
-                    pass
-    _cleanup_download_staging(job_id)
-    path = _download_job_path(job_id)
-    try:
-        path.unlink(missing_ok=True)
-    except OSError:
-        pass
-    return True, "OK"
-
-
-def cmd_files_download_cancel(job_id: str) -> tuple[bool, str]:
-    job_id = (job_id or "").strip()
-    if not job_id:
-        return False, "job_id fehlt."
-    data = _read_download_job(job_id)
-    if not data:
-        return True, "OK"
-    if data.get("status") in ("cancelled", "error"):
-        return True, "OK"
-    if not data.get("direct"):
-        _cleanup_download_staging(job_id, Path(data["staging"]) if data.get("staging") else None)
-    else:
-        _cleanup_download_staging(job_id)
-    _write_download_job(job_id, {
-        "status": "cancelled",
-        "phase": "cancelled",
-        "phase_label": "Download abgebrochen",
-        "progress": 0,
-    })
-    return True, "OK"
-
-
 def cmd_files_commit_upload(body_text: str) -> tuple[bool, str]:
     try:
         data = json.loads(body_text or "{}")
@@ -968,6 +776,16 @@ def cmd_files_commit_upload(body_text: str) -> tuple[bool, str]:
 
     if not staging.is_file():
         return False, "Upload-Datei nicht gefunden."
+
+    try:
+        upload_size = staging.stat().st_size
+    except OSError as exc:
+        return False, f"Upload-Datei nicht lesbar: {exc}"
+
+    max_bytes = int(load_app_config().get("max_upload_bytes", MAX_UPLOAD_BYTES))
+    if upload_size > max_bytes:
+        limit_mb = max(1, max_bytes // (1024 * 1024))
+        return False, f"Datei zu groß (max. {limit_mb} MB)."
 
     if not parent.is_dir():
         return False, "Zielverzeichnis existiert nicht."
@@ -1615,10 +1433,6 @@ def handle_request(line: str, body: bytes) -> tuple[bool, str]:
         "files-delete": lambda: cmd_files_delete(arg),
         "files-stage-download": lambda: cmd_files_stage_download(arg),
         "files-download-manifest": lambda: cmd_files_download_manifest(arg),
-        "files-download-start": lambda: cmd_files_download_start(arg),
-        "files-download-status": lambda: cmd_files_download_status(arg),
-        "files-download-cancel": lambda: cmd_files_download_cancel(arg),
-        "files-download-cleanup": lambda: cmd_files_download_cleanup(arg),
         "files-cleanup-staging": lambda: cmd_cleanup_staging(arg),
         "files-commit-upload": lambda: cmd_files_commit_upload(body_text),
     }

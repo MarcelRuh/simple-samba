@@ -78,3 +78,15 @@ def test_comment_out_sections():
     assert "[share2]" in updated
     assert "path = /srv/2" in updated
     assert "workgroup = TEST" in updated
+
+
+def test_get_share_by_name_case_insensitive():
+    from app.samba import Share, get_share_by_name
+
+    shares = [
+        Share(name="Daten", path="/srv/daten", enabled=True),
+        Share(name="media", path="/srv/media", enabled=True),
+    ]
+    assert get_share_by_name(shares, "daten") is shares[0]
+    assert get_share_by_name(shares, "MEDIA") is shares[1]
+    assert get_share_by_name(shares, "fehlt") is None

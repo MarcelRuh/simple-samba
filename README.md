@@ -2,7 +2,7 @@
 
 Interne Web-Verwaltung für Samba-Freigaben auf Debian – klein, ohne Reverse Proxy, ohne nginx/Caddy/Apache.
 
-**Aktuelle Version:** v1.13.0
+**Aktuelle Version:** v1.14.0
 
 ## Screenshots
 
@@ -30,6 +30,8 @@ Interne Web-Verwaltung für Samba-Freigaben auf Debian – klein, ohne Reverse P
 - **Datei-Explorer** – Dateien in Freigaben durchsuchen, hoch- und herunterladen (mit Fortschritt & Abbruch)
 - Ordner-Download als **Streaming-ZIP** (HTTP) oder direkt in Zielordner (HTTPS)
 - Downloads **direkt aus Freigaben** ohne Kopie auf die Systemplatte
+- Datei-Explorer: **Sortierung** (Name, Größe, Datum) und Hinweis zu HTTP/ZIP vs. HTTPS
+- Konfigurierbares **Upload-Limit** (`max_upload_bytes` in `config.json`)
 - CSRF-Schutz
 - Privilege-Daemon über Unix-Socket (kein sudo)
 

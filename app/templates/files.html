@@ -24,6 +24,11 @@
       </div>
       <div class="files-header-actions">
         <input type="search" id="files-search" class="files-search" placeholder="Suchen …" aria-label="Dateien suchen">
+        <select id="files-sort" class="files-sort" aria-label="Sortierung">
+          <option value="name">Name</option>
+          <option value="size">Größe</option>
+          <option value="mtime">Datum</option>
+        </select>
         <label class="files-icon-btn files-upload-btn" id="files-upload-label" title="Hochladen">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
           <input type="file" id="files-upload-input" multiple hidden>
@@ -40,6 +45,11 @@
         </button>
       </div>
     </header>
+
+    <div id="files-download-hint" class="notice files-download-hint" hidden>
+      <span class="toast-icon" aria-hidden="true">i</span>
+      <span>Über <strong>HTTP</strong> werden Ordner als <strong>ZIP</strong> heruntergeladen. Mit <strong>HTTPS</strong> bleibt die Ordnerstruktur erhalten.</span>
+    </div>
 
     <div id="files-upload-progress" class="files-transfer-progress" hidden>
       <div class="files-transfer-progress-track">

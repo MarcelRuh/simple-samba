@@ -200,10 +200,15 @@ def write_shares(shares: list[Share], shares_file: str, base_path: str) -> None:
 
 
 def get_share_by_name(shares: list[Share], name: str) -> Share | None:
+    key = name.casefold()
     for share in shares:
-        if share.name == name:
+        if share.name.casefold() == key:
             return share
     return None
+
+
+def share_names_equal(left: str, right: str) -> bool:
+    return left.casefold() == right.casefold()
 
 
 def service_status() -> dict[str, Any]:

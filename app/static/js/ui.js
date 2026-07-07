@@ -161,6 +161,18 @@
     });
   }
 
+  function formatSize(bytes) {
+    if (!bytes) return '0 B';
+    var units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    var i = 0;
+    var size = bytes;
+    while (size >= 1024 && i < units.length - 1) {
+      size /= 1024;
+      i += 1;
+    }
+    return (i === 0 ? size : size.toFixed(size >= 10 ? 0 : 1)) + ' ' + units[i];
+  }
+
   function showToast(message, type) {
     var stack = document.querySelector('.toast-stack');
     if (!stack) {
@@ -194,6 +206,7 @@
     confirm: openModal,
     prompt: openPrompt,
     toast: showToast,
+    formatSize: formatSize,
     csrfToken: function () {
       var meta = document.querySelector('meta[name="csrf-token"]');
       return meta ? meta.getAttribute('content') : '';

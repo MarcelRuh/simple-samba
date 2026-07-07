@@ -32,35 +32,27 @@
   var viewMode = 'grid';
   var lastData = null;
   var searchQuery = '';
+  var sortMode = 'name';
   var downloadBusy = false;
-  var downloadJobId = null;
   var downloadTransferXhr = null;
   var downloadCancelled = false;
 
   var IMAGE_EXT = /\.(png|jpe?g|gif|webp|svg|bmp|ico)$/i;
 
   function csrfToken() {
-    var meta = document.querySelector('meta[name="csrf-token"]');
-    return meta ? meta.getAttribute('content') : '';
-  }
-
-  function shareByName(name) {
-    for (var i = 0; i < shares.length; i++) {
-      if (shares[i].name === name) return shares[i];
-    }
-    return shares[0];
+    return window.SambaUI ? window.SambaUI.csrfToken() : '';
   }
 
   function formatSize(bytes) {
-    if (bytes === 0) return '0 B';
-    var units = ['B', 'KB', 'MB', 'GB', 'TB'];
-    var i = 0;
-    var size = bytes;
-    while (size >= 1024 && i < units.length - 1) {
-      size /= 1024;
-      i += 1;
+    return window.SambaUI ? window.SambaUI.formatSize(bytes) : String(bytes);
+  }
+
+  function shareByName(name) {
+    var key = (name || '').toLowerCase();
+    for (var i = 0; i < shares.length; i++) {
+      if (shares[i].name.toLowerCase() === key) return shares[i];
     }
-    return (i === 0 ? size : size.toFixed(size >= 10 ? 0 : 1)) + ' ' + units[i];
+    return shares[0];
   }
 
   function estimateZipDownloadSize(manifest) {
@@ -133,7 +125,6 @@
   }
 
   function resetDownloadState() {
-    downloadJobId = null;
     downloadTransferXhr = null;
     downloadCancelled = false;
     setDownloadProgress(false);
@@ -142,17 +133,12 @@
   function cancelDownload() {
     if (!downloadBusy) return;
     downloadCancelled = true;
-    var jobId = downloadJobId;
     if (downloadTransferXhr) {
       downloadTransferXhr.abort();
       downloadTransferXhr = null;
     }
-    setDownloadProgress(false);
-    downloadJobId = null;
-    if (jobId) {
-      apiPost('/api/files/download/cancel', { job: jobId }).catch(function () {});
-    }
-    showToast('Download abgebrochen.', 'success');
+    resetDownloadState();
+    if (window.showToast) showToast('Download abgebrochen.', 'success');
   }
 
   function setDownloadProgress(visible, pct, text) {
@@ -170,108 +156,6 @@
     }
     if (dlProgressText) dlProgressText.textContent = text || '';
     downloadBusy = true;
-  }
-
-  function pollDownloadJob(jobId) {
-    var url = '/api/files/download/status?job=' + encodeURIComponent(jobId);
-    return fetch(url, { credentials: 'same-origin' }).then(function (res) {
-      return res.json().then(function (data) {
-        if (!res.ok) throw new Error(data.error || 'Status fehlgeschlagen');
-        return data;
-      });
-    });
-  }
-
-  function waitForDownloadReady(jobId) {
-    return new Promise(function (resolve, reject) {
-      var tick = function () {
-        if (isDownloadAbort()) {
-          reject(new DownloadAbortError());
-          return;
-        }
-        pollDownloadJob(jobId).then(function (status) {
-          if (isDownloadAbort()) {
-            reject(new DownloadAbortError());
-            return;
-          }
-          if (status.status === 'cancelled') {
-            reject(new DownloadAbortError());
-            return;
-          }
-          if (status.status === 'error') {
-            reject(new Error(status.error || 'Download fehlgeschlagen'));
-            return;
-          }
-          setDownloadProgress(
-            true,
-            Math.min(status.progress || 0, 90),
-            status.phase_label || 'Download wird vorbereitet …'
-          );
-          if (status.status === 'ready') {
-            resolve(status);
-            return;
-          }
-          sleep(400).then(tick);
-        }).catch(reject);
-      };
-      tick();
-    });
-  }
-
-  function transferDownloadFile(jobId, fileName) {
-    return new Promise(function (resolve, reject) {
-      var xhr = new XMLHttpRequest();
-      downloadTransferXhr = xhr;
-      xhr.open('GET', '/api/files/download?job=' + encodeURIComponent(jobId));
-      xhr.responseType = 'blob';
-      xhr.addEventListener('progress', function (e) {
-        if (isDownloadAbort()) return;
-        if (e.lengthComputable) {
-          var transferPct = Math.round((e.loaded / e.total) * 100);
-          var pct = 90 + Math.round(transferPct * 0.1);
-          setDownloadProgress(
-            true,
-            pct,
-            'Download: ' + fileName + ' (' + transferPct + '%)'
-          );
-        } else {
-          setDownloadProgress(true, 95, 'Download: ' + fileName + ' …');
-        }
-      });
-      xhr.addEventListener('load', function () {
-        downloadTransferXhr = null;
-        if (isDownloadAbort()) {
-          reject(new DownloadAbortError());
-          return;
-        }
-        if (xhr.status >= 400) {
-          reject(new Error('Download fehlgeschlagen'));
-          return;
-        }
-        var blobUrl = URL.createObjectURL(xhr.response);
-        var link = document.createElement('a');
-        link.href = blobUrl;
-        link.download = fileName;
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-        URL.revokeObjectURL(blobUrl);
-        resolve();
-      });
-      xhr.addEventListener('error', function () {
-        downloadTransferXhr = null;
-        if (isDownloadAbort()) {
-          reject(new DownloadAbortError());
-          return;
-        }
-        reject(new Error('Download fehlgeschlagen'));
-      });
-      xhr.addEventListener('abort', function () {
-        downloadTransferXhr = null;
-        reject(new DownloadAbortError());
-      });
-      xhr.send();
-    });
   }
 
   function joinRel(base, part) {
@@ -391,7 +275,6 @@
       return;
     }
     downloadCancelled = false;
-    downloadJobId = null;
     setDownloadProgress(true, 0, 'Ordner wird vorbereitet …');
     fetchDownloadManifest(rel)
       .then(function (manifest) {
@@ -456,7 +339,6 @@
       return;
     }
     downloadCancelled = false;
-    downloadJobId = null;
     setDownloadProgress(true, 0, 'Ordner wird vorbereitet …');
 
     window.showDirectoryPicker({ mode: 'readwrite' })
@@ -529,7 +411,6 @@
       return;
     }
     downloadCancelled = false;
-    downloadJobId = null;
     setDownloadProgress(true, 0, 'Download wird gestartet …');
     transferDirectDownloadFromUrl(downloadUrl(rel), displayName, {
       expectedBytes: fileSize || 0,
@@ -656,6 +537,34 @@
     });
   }
 
+  function sortedEntries(data) {
+    var entries = filteredEntries(data).slice();
+    entries.sort(function (a, b) {
+      if (sortMode === 'size') {
+        if (a.type === 'dir' && b.type !== 'dir') return -1;
+        if (b.type === 'dir' && a.type !== 'dir') return 1;
+        var sizeA = a.type === 'dir' ? 0 : (a.size || 0);
+        var sizeB = b.type === 'dir' ? 0 : (b.size || 0);
+        return sizeB - sizeA || a.name.localeCompare(b.name, 'de');
+      }
+      if (sortMode === 'mtime') {
+        return (b.mtime || 0) - (a.mtime || 0) || a.name.localeCompare(b.name, 'de');
+      }
+      return a.name.localeCompare(b.name, 'de');
+    });
+    return entries;
+  }
+
+  function updateHttpsHint() {
+    var el = document.getElementById('files-download-hint');
+    if (!el) return;
+    if (canUseFolderPicker()) {
+      el.hidden = true;
+      return;
+    }
+    el.hidden = false;
+  }
+
   function confirmDelete(entryName, entryType, rel) {
     var label = entryType === 'dir' ? 'Ordner' : 'Datei';
     window.SambaUI.confirm(
@@ -714,7 +623,7 @@
 
   function renderGrid(data) {
     gridEl.innerHTML = '';
-    var entries = filteredEntries(data);
+    var entries = sortedEntries(data);
 
     entries.forEach(function (entry) {
       var item = document.createElement('div');
@@ -767,7 +676,7 @@
 
   function renderList(data) {
     tbody.innerHTML = '';
-    var entries = filteredEntries(data);
+    var entries = sortedEntries(data);
 
     entries.forEach(function (entry) {
       var tr = document.createElement('tr');
@@ -1005,10 +914,19 @@
     if (lastData) renderView(lastData);
   });
 
+  var sortSelect = document.getElementById('files-sort');
+  if (sortSelect) {
+    sortSelect.addEventListener('change', function () {
+      sortMode = sortSelect.value || 'name';
+      if (lastData) renderView(lastData);
+    });
+  }
+
   var first = shares[0];
   currentShare = first.name;
   readOnly = !!first.readOnly;
   renderSidebar();
   setWriteControls();
+  updateHttpsHint();
   loadBrowse('');
 })();

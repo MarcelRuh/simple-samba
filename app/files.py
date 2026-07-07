@@ -114,55 +114,6 @@ def stage_download(share_name: str, rel_path: str) -> dict[str, Any]:
         raise FileBrowserError("Ungültige Antwort vom Server.") from exc
 
 
-def start_download_job(share_name: str, rel_path: str) -> str:
-    config = load_config()
-    shares = read_shares(config["samba_shares_file"])
-    share = _share_for_name(shares, share_name)
-    if not (rel_path or "").strip():
-        raise ValidationError("Dateiname fehlt.")
-    abs_path = resolve_browser_path(share, rel_path, config["shares_base_path"])
-    ok, output = _priv_request("files-download-start", arg=abs_path)
-    if not ok:
-        raise FileBrowserError(output or "Download konnte nicht gestartet werden.")
-    try:
-        data = json.loads(output)
-    except json.JSONDecodeError as exc:
-        raise FileBrowserError("Ungültige Antwort vom Server.") from exc
-    job_id = str(data.get("job_id", "")).strip()
-    if not job_id:
-        raise FileBrowserError("Download-Job konnte nicht gestartet werden.")
-    return job_id
-
-
-def download_job_status(job_id: str) -> dict[str, Any]:
-    job_id = (job_id or "").strip()
-    if not job_id:
-        raise ValidationError("job_id fehlt.")
-    ok, output = _priv_request("files-download-status", arg=job_id)
-    if not ok:
-        raise FileBrowserError(output or "Download-Status nicht verfügbar.")
-    try:
-        return json.loads(output)
-    except json.JSONDecodeError as exc:
-        raise FileBrowserError("Ungültige Antwort vom Server.") from exc
-
-
-def cleanup_download_job(job_id: str) -> None:
-    job_id = (job_id or "").strip()
-    if not job_id:
-        return
-    _priv_request("files-download-cleanup", arg=job_id)
-
-
-def cancel_download_job(job_id: str) -> None:
-    job_id = (job_id or "").strip()
-    if not job_id:
-        raise ValidationError("job_id fehlt.")
-    ok, output = _priv_request("files-download-cancel", arg=job_id)
-    if not ok:
-        raise FileBrowserError(output or "Download konnte nicht abgebrochen werden.")
-
-
 def download_manifest(share_name: str, rel_path: str) -> dict[str, Any]:
     config = load_config()
     shares = read_shares(config["samba_shares_file"])
