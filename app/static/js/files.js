@@ -799,27 +799,43 @@
     return parts.length ? parts[parts.length - 1] : '';
   }
 
-  function normalizeUploadFile(file, nameHint) {
+  function uploadDisplayName(file, nameHint) {
     if (!file) return null;
     var name = basenameRel(nameHint || file.name || '');
-    if (!name) return null;
-    if (file.name === name) return file;
-    return new File([file], name, {
-      type: file.type || 'application/octet-stream',
-      lastModified: file.lastModified || Date.now(),
+    return name || null;
+  }
+
+  function readBlobFromFile(file) {
+    return file.arrayBuffer().then(function (buf) {
+      return new Blob([buf], { type: file.type || 'application/octet-stream' });
     });
   }
 
-  function uploadOne(file, index, total, targetPath, displayName) {
+  function materializeUploadItem(item) {
+    var relPath = (item.relPath || item.file.name || '').replace(/\\/g, '/');
+    var displayName = uploadDisplayName(item.file, relPath);
+    if (!displayName) {
+      return Promise.reject(new Error('Datei ohne Namen'));
+    }
+    return readBlobFromFile(item.file).then(function (blob) {
+      return { blob: blob, relPath: relPath, name: displayName };
+    });
+  }
+
+  function materializeItems(items) {
+    return Promise.all(items.map(materializeUploadItem));
+  }
+
+  function uploadOne(blob, index, total, targetPath, fileName) {
     var uploadPath = targetPath !== undefined ? targetPath : currentPath;
-    var fileName = displayName || file.name || 'upload.bin';
     return new Promise(function (resolve, reject) {
       var xhr = new XMLHttpRequest();
       var form = new FormData();
       form.append('csrf_token', csrfToken());
       form.append('share', currentShare);
       form.append('path', uploadPath);
-      form.append('file', file, fileName);
+      form.append('filename', fileName);
+      form.append('file', blob, fileName);
 
       xhr.upload.addEventListener('progress', function (e) {
         if (e.lengthComputable) {
@@ -852,6 +868,10 @@
         resolve(data);
       });
       xhr.addEventListener('error', function () {
+        if (xhr.status === 0) {
+          reject(new Error('Datei konnte nicht gelesen werden (verschoben, gelöscht oder zu groß).'));
+          return;
+        }
         reject(new Error('Upload fehlgeschlagen'));
       });
       xhr.open('POST', '/api/files/upload');
@@ -921,13 +941,12 @@
                 return new Promise(function (res, rej) {
                   entry.file(function (file) {
                     var relPath = prefix + '/' + entry.name;
-                    var normalized = normalizeUploadFile(file, entry.name);
-                    if (!normalized) {
+                    if (!uploadDisplayName(file, entry.name)) {
                       rej(new Error('Datei ohne Namen'));
                       return;
                     }
                     collected.push({
-                      file: normalized,
+                      file: file,
                       relPath: relPath,
                     });
                     res();
@@ -953,12 +972,11 @@
     if (entry.isFile) {
       return new Promise(function (resolve, reject) {
         entry.file(function (file) {
-          var normalized = normalizeUploadFile(file, entry.name);
-          if (!normalized) {
+          if (!uploadDisplayName(file, entry.name)) {
             reject(new Error('Datei ohne Namen'));
             return;
           }
-          resolve([{ file: normalized, relPath: entry.name || normalized.name }]);
+          resolve([{ file: file, relPath: entry.name || file.name }]);
         }, reject);
       });
     }
@@ -988,9 +1006,8 @@
         if (items[i].getAsFile) {
           var directFile = items[i].getAsFile();
           if (directFile) {
-            var normalized = normalizeUploadFile(directFile, directFile.name);
-            if (normalized) {
-              collected.push({ file: normalized, relPath: normalized.name });
+            if (uploadDisplayName(directFile, directFile.name)) {
+              collected.push({ file: directFile, relPath: directFile.name });
             }
           }
         }
@@ -1011,8 +1028,7 @@
 
     var files = dataTransfer.files ? Array.prototype.slice.call(dataTransfer.files) : [];
     return Promise.resolve(files.map(function (file) {
-      var normalized = normalizeUploadFile(file, file.name);
-      return normalized ? { file: normalized, relPath: normalized.name } : null;
+      return uploadDisplayName(file, file.name) ? { file: file, relPath: file.name } : null;
     }).filter(Boolean));
   }
 
@@ -1045,33 +1061,29 @@
     }
 
     var prepared = [];
-    var chain = Promise.resolve();
-    items.forEach(function (item) {
-      chain = chain.then(function () {
-        var relPath = (item.relPath || item.file.name || '').replace(/\\/g, '/');
-        var relDir = dirnameRel(relPath);
-        return ensureRelativeDirs(relDir).then(function () {
-          var uploadName = basenameRel(relPath);
-          var normalized = normalizeUploadFile(item.file, uploadName);
-          if (!normalized) {
-            throw new Error('Datei ohne Namen');
-          }
-          prepared.push({
-            file: normalized,
-            path: joinCurrentPath(relDir),
-            name: uploadName || normalized.name,
+    materializeItems(items)
+      .then(function (materialized) {
+        var chain = Promise.resolve();
+        materialized.forEach(function (item) {
+          chain = chain.then(function () {
+            var relDir = dirnameRel(item.relPath);
+            return ensureRelativeDirs(relDir).then(function () {
+              prepared.push({
+                blob: item.blob,
+                path: joinCurrentPath(relDir),
+                name: item.name,
+              });
+            });
           });
         });
-      });
-    });
-
-    chain
+        return chain;
+      })
       .then(function () {
         var uploadChain = Promise.resolve();
         prepared.forEach(function (entry, index) {
           uploadChain = uploadChain.then(function () {
             progressBar.style.width = '0%';
-            return uploadOne(entry.file, index, total, entry.path, entry.name);
+            return uploadOne(entry.blob, index, total, entry.path, entry.name);
           });
         });
         return uploadChain;

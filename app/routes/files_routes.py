@@ -127,10 +127,11 @@ def register(app: Flask) -> None:
         share_name = request.form.get("share", "")
         rel_path = request.form.get("path", "")
         uploaded = request.files.get("file")
-        if not uploaded or not uploaded.filename:
+        if not uploaded:
             return jsonify({"error": "Keine Datei ausgewählt."}), 400
 
-        filename = os.path.basename(uploaded.filename.replace("\\", "/"))
+        raw_name = (request.form.get("filename") or uploaded.filename or "").strip()
+        filename = os.path.basename(raw_name.replace("\\", "/"))
         if not filename or filename in (".", ".."):
             return jsonify({"error": "Ungültiger Dateiname."}), 400
 
