@@ -27,6 +27,31 @@ def test_app_update_job_lock_defined():
     assert hasattr(lock, "acquire")
 
 
+def test_validate_browser_path_allows_share_root_when_equals_base(tmp_path, monkeypatch):
+    daemon = _load_daemon_module()
+    base = tmp_path / "raid5"
+    base.mkdir()
+
+    monkeypatch.setattr(daemon, "get_shares_base", lambda: base)
+    monkeypatch.setattr(daemon, "_get_enabled_share_paths", lambda: [base.resolve()])
+
+    resolved = daemon.validate_browser_path(str(base))
+    assert resolved == base.resolve()
+
+
+def test_validate_browser_path_rejects_base_without_share(tmp_path, monkeypatch):
+    daemon = _load_daemon_module()
+    base = tmp_path / "shares"
+    share = base / "data"
+    share.mkdir(parents=True)
+
+    monkeypatch.setattr(daemon, "get_shares_base", lambda: base)
+    monkeypatch.setattr(daemon, "_get_enabled_share_paths", lambda: [share.resolve()])
+
+    with pytest.raises(ValueError, match="Basisverzeichnis"):
+        daemon.validate_browser_path(str(base))
+
+
 def test_validate_browser_path_rejects_symlink(tmp_path, monkeypatch):
     daemon = _load_daemon_module()
     base = tmp_path / "shares"

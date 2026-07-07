@@ -529,7 +529,7 @@ def validate_browser_path(path_str: str) -> Path:
     path = Path(path_str)
     if relative_path_parts(base, path) is None:
         raise ValueError(f"Pfad {path_str} liegt nicht unter {base}")
-    if path.resolve() == base:
+    if path.resolve() == base and not _is_share_root(path):
         raise ValueError("Das Basisverzeichnis selbst darf nicht verwendet werden.")
 
     roots = _get_enabled_share_paths()
