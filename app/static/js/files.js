@@ -166,109 +166,19 @@
     return base + '/' + part;
   }
 
-  function fetchDownloadManifest(rel) {
-    var url = '/api/files/download/manifest?share=' + encodeURIComponent(currentShare) +
-      '&path=' + encodeURIComponent(rel);
-    return fetch(url, { credentials: 'same-origin' }).then(function (res) {
-      return res.json().then(function (data) {
-        if (!res.ok) throw new Error(data.error || 'Ordnerliste fehlgeschlagen');
-        return data;
-      });
-    });
-  }
-
-  function fetchDownloadBlob(rel) {
-    return fetch(downloadUrl(rel), { credentials: 'same-origin' }).then(function (res) {
-      if (!res.ok) {
-        return res.json().then(function (data) {
-          throw new Error(data.error || 'Download fehlgeschlagen');
-        }).catch(function () {
-          throw new Error('Download fehlgeschlagen');
-        });
-      }
-      return res.blob();
-    });
-  }
-
-  function canUseFolderPicker() {
-    return window.isSecureContext && typeof window.showDirectoryPicker === 'function';
-  }
-
   function folderZipUrl(rel) {
     return '/api/files/download/folder?share=' + encodeURIComponent(currentShare) +
       '&path=' + encodeURIComponent(rel);
   }
 
-  function transferDirectDownloadFromUrl(url, fileName, opts) {
-    opts = opts || {};
-    return new Promise(function (resolve, reject) {
-      var xhr = new XMLHttpRequest();
-      downloadTransferXhr = xhr;
-      var expectedBytes = opts.expectedBytes || 0;
-      var headerTotal = 0;
-      var lastLoaded = 0;
-      var lastTime = Date.now();
-      var speedBps = 0;
-      var label = opts.label || 'Download';
-
-      xhr.open('GET', url);
-      xhr.responseType = 'blob';
-      xhr.onreadystatechange = function () {
-        if (xhr.readyState >= 2 && !headerTotal) {
-          var hdr = xhr.getResponseHeader('X-Download-Total-Bytes');
-          if (hdr) headerTotal = parseInt(hdr, 10) || 0;
-        }
-      };
-      xhr.addEventListener('progress', function (e) {
-        if (isDownloadAbort()) return;
-        var total = e.lengthComputable ? e.total : (headerTotal || expectedBytes);
-        var loaded = e.loaded || 0;
-        var now = Date.now();
-        if (now - lastTime >= 500 && loaded > lastLoaded) {
-          speedBps = (loaded - lastLoaded) / ((now - lastTime) / 1000);
-          lastLoaded = loaded;
-          lastTime = now;
-        }
-        setDownloadProgress(
-          true,
-          transferProgressPct(loaded, total),
-          formatTransferProgress(loaded, total, label, fileName, speedBps)
-        );
-      });
-      xhr.addEventListener('load', function () {
-        downloadTransferXhr = null;
-        if (isDownloadAbort()) {
-          reject(new DownloadAbortError());
-          return;
-        }
-        if (xhr.status >= 400) {
-          reject(new Error('Download fehlgeschlagen'));
-          return;
-        }
-        var blobUrl = URL.createObjectURL(xhr.response);
-        var link = document.createElement('a');
-        link.href = blobUrl;
-        link.download = fileName;
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-        URL.revokeObjectURL(blobUrl);
-        resolve();
-      });
-      xhr.addEventListener('error', function () {
-        downloadTransferXhr = null;
-        if (isDownloadAbort()) {
-          reject(new DownloadAbortError());
-          return;
-        }
-        reject(new Error('Download fehlgeschlagen'));
-      });
-      xhr.addEventListener('abort', function () {
-        downloadTransferXhr = null;
-        reject(new DownloadAbortError());
-      });
-      xhr.send();
-    });
+  function triggerBrowserDownload(url, fileName) {
+    var link = document.createElement('a');
+    link.href = url;
+    if (fileName) link.download = fileName;
+    link.rel = 'noopener';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
   }
 
   function startFolderZipDownload(rel, folderName) {
@@ -277,151 +187,15 @@
       return;
     }
     downloadCancelled = false;
-    setDownloadProgress(true, 0, 'Ordner wird vorbereitet …');
-    fetchDownloadManifest(rel)
-      .then(function (manifest) {
-        if (isDownloadAbort()) throw new DownloadAbortError();
-        var expectedBytes = estimateZipDownloadSize(manifest);
-        var fileCount = manifest.total_files || (manifest.files && manifest.files.length) || 0;
-        setDownloadProgress(
-          true,
-          1,
-          'ZIP wird erstellt (' + fileCount + ' Dateien, ca. ' + formatSize(expectedBytes) + ') …'
-        );
-        return transferDirectDownloadFromUrl(folderZipUrl(rel), folderName + '.zip', {
-          expectedBytes: expectedBytes,
-          label: 'Download',
-        });
-      })
-      .then(function () {
-        if (isDownloadAbort()) return;
-        setDownloadProgress(true, 100, 'Download abgeschlossen');
-        showToast('Ordner-Download abgeschlossen.', 'success');
-      })
-      .catch(function (err) {
-        if (isDownloadAbort(err)) return;
-        showApiError(err);
-      })
-      .finally(function () {
-        if (downloadCancelled) {
-          downloadCancelled = false;
-          return;
-        }
-        sleep(800).then(function () { resetDownloadState(); });
-      });
-  }
-
-  function writeBlobToDirectory(rootHandle, relPath, blob) {
-    var parts = relPath.split('/').filter(Boolean);
-    var fileName = parts.pop();
-    var chain = Promise.resolve(rootHandle);
-    parts.forEach(function (part) {
-      chain = chain.then(function (dirHandle) {
-        return dirHandle.getDirectoryHandle(part, { create: true });
-      });
-    });
-    return chain.then(function (dirHandle) {
-      return dirHandle.getFileHandle(fileName, { create: true }).then(function (fileHandle) {
-        return fileHandle.createWritable().then(function (writable) {
-          return writable.write(blob).then(function () {
-            return writable.close();
-          });
-        });
-      });
-    });
-  }
-
-  function openDownloadDirectory(folderName) {
-    var pickerOpts = { mode: 'readwrite', startIn: 'downloads' };
-    return window.showDirectoryPicker(pickerOpts).then(function (dirHandle) {
-      return dirHandle.getDirectoryHandle(folderName, { create: true });
-    });
+    setDownloadProgress(true, 0, 'ZIP-Download wird gestartet …');
+    triggerBrowserDownload(folderZipUrl(rel), folderName + '.zip');
+    setDownloadProgress(true, 100, 'Download im Browser gestartet');
+    showToast('ZIP-Download gestartet – Fortschritt in den Browser-Downloads.', 'success');
+    sleep(1200).then(function () { resetDownloadState(); });
   }
 
   function startFolderDownload(rel, folderName) {
-    if (!canUseFolderPicker()) {
-      startFolderZipDownload(rel, folderName);
-      return;
-    }
-    if (downloadBusy) {
-      showToast('Es läuft bereits ein Download.', 'error');
-      return;
-    }
-    downloadCancelled = false;
-    var handedOffToZip = false;
-    setDownloadProgress(true, 0, 'Ordner wird vorbereitet …');
-
-    openDownloadDirectory(folderName)
-      .catch(function (err) {
-        if (isDownloadAbort(err)) throw err;
-        if (err && err.name === 'AbortError') throw err;
-        handedOffToZip = true;
-        setDownloadProgress(false);
-        showToast('Zielordner nicht nutzbar – Download als ZIP.', 'info');
-        startFolderZipDownload(rel, folderName);
-        return null;
-      })
-      .then(function (rootHandle) {
-        if (!rootHandle || handedOffToZip) return;
-        if (isDownloadAbort()) throw new DownloadAbortError();
-        return fetchDownloadManifest(rel).then(function (manifest) {
-          return { root: rootHandle, manifest: manifest };
-        });
-      })
-      .then(function (ctx) {
-        if (!ctx) return;
-        var files = ctx.manifest.files || [];
-        if (!files.length) {
-          throw new Error('Der Ordner enthält keine Dateien.');
-        }
-        var totalBytes = ctx.manifest.total_size || 0;
-        if (!totalBytes) {
-          files.forEach(function (file) { totalBytes += file.size || 0; });
-        }
-        var loadedBytes = 0;
-        var chain = Promise.resolve();
-        files.forEach(function (file) {
-          chain = chain.then(function () {
-            if (isDownloadAbort()) throw new DownloadAbortError();
-            var fileRel = joinRel(rel, file.rel);
-            setDownloadProgress(
-              true,
-              transferProgressPct(loadedBytes, totalBytes),
-              formatTransferProgress(loadedBytes, totalBytes, 'Download', file.rel, 0)
-            );
-            return fetchDownloadBlob(fileRel).then(function (blob) {
-              return writeBlobToDirectory(ctx.root, file.rel, blob).then(function () {
-                loadedBytes += file.size || blob.size || 0;
-              });
-            }).then(function () {
-              setDownloadProgress(
-                true,
-                transferProgressPct(loadedBytes, totalBytes),
-                formatTransferProgress(loadedBytes, totalBytes, 'Download', file.rel, 0)
-              );
-            });
-          });
-        });
-        return chain;
-      })
-      .then(function () {
-        if (isDownloadAbort()) return;
-        setDownloadProgress(true, 100, 'Download abgeschlossen');
-        showToast('Ordner-Download abgeschlossen.', 'success');
-      })
-      .catch(function (err) {
-        if (isDownloadAbort(err)) return;
-        if (err && err.name === 'AbortError') return;
-        showApiError(err);
-      })
-      .finally(function () {
-        if (handedOffToZip) return;
-        if (downloadCancelled) {
-          downloadCancelled = false;
-          return;
-        }
-        sleep(800).then(function () { resetDownloadState(); });
-      });
+    startFolderZipDownload(rel, folderName);
   }
 
   function startFileDownload(rel, displayName, fileSize) {
@@ -431,30 +205,10 @@
     }
     downloadCancelled = false;
     setDownloadProgress(true, 0, 'Download wird gestartet …');
-    transferDirectDownloadFromUrl(downloadUrl(rel), displayName, {
-      expectedBytes: fileSize || 0,
-      label: 'Download',
-    })
-      .then(function () {
-        if (isDownloadAbort()) return;
-        setDownloadProgress(true, 100, 'Download abgeschlossen');
-        showToast('Download abgeschlossen.', 'success');
-      })
-      .catch(function (err) {
-        if (isDownloadAbort(err)) return;
-        showApiError(err);
-      })
-      .finally(function () {
-        if (downloadCancelled) {
-          downloadCancelled = false;
-          return;
-        }
-        sleep(800).then(function () { resetDownloadState(); });
-      });
-  }
-
-  function transferDirectDownload(rel, fileName) {
-    return transferDirectDownloadFromUrl(downloadUrl(rel), fileName);
+    triggerBrowserDownload(downloadUrl(rel), displayName);
+    setDownloadProgress(true, 100, 'Download im Browser gestartet');
+    showToast('Download gestartet.', 'success');
+    sleep(1200).then(function () { resetDownloadState(); });
   }
 
   function startDownload(rel, displayName, entryType, fileSize) {
@@ -576,19 +330,8 @@
 
   function updateHttpsHint() {
     var el = document.getElementById('files-download-hint');
-    var textEl = document.getElementById('files-download-hint-text');
     if (!el) return;
-    if (canUseFolderPicker()) {
-      el.hidden = true;
-      return;
-    }
-    el.hidden = false;
-    if (!textEl) return;
-    if (!window.isSecureContext) {
-      textEl.innerHTML = 'Ordner werden als <strong>ZIP</strong> heruntergeladen. Für die Ordnerstruktur ist <strong>HTTPS</strong> erforderlich.';
-      return;
-    }
-    textEl.innerHTML = 'Ordner werden als <strong>ZIP</strong> heruntergeladen, weil dieser Browser keinen lokalen Zielordner unterstützt.';
+    el.hidden = true;
   }
 
   function confirmDelete(entryName, entryType, rel) {
