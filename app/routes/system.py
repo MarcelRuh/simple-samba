@@ -7,7 +7,6 @@ from flask import Flask, flash, jsonify, render_template, request
 from app.app_updates import get_app_update_info
 from app.auth import login_required
 from app.config import load_config
-from app.csrf import validate_csrf_token
 from app.system import (
     SystemUpdateError,
     app_update_job_status,
@@ -135,8 +134,6 @@ def register(app: Flask) -> None:
     @app.route("/system/updates/reboot", methods=["POST"])
     @login_required
     def system_updates_reboot():
-        if not validate_csrf_token(request.headers.get("X-CSRF-Token")):
-            return jsonify({"ok": False, "error": "CSRF ungültig."}), 403
         try:
             message = system_reboot()
             return jsonify({"ok": True, "message": message})

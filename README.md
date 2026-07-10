@@ -2,7 +2,7 @@
 
 Interne Web-Verwaltung für Samba-Freigaben auf Debian – klein, ohne Reverse Proxy, ohne nginx/Caddy/Apache.
 
-**Aktuelle Version:** v1.14.1
+**Aktuelle Version:** v1.17.5
 
 ## Screenshots
 
@@ -27,9 +27,9 @@ Interne Web-Verwaltung für Samba-Freigaben auf Debian – klein, ohne Reverse P
 - Dashboard mit Speicher, Updates und Neustart-Status
 - **App-Update-Hinweis** – prüft GitHub auf neuere Versionen (Cache: 6 h)
 - **App-Update-Button** – GitHub-Update direkt aus der UI
-- **Datei-Explorer** – Dateien in Freigaben durchsuchen, hoch- und herunterladen (mit Fortschritt & Abbruch)
+- **Datei-Explorer** – Dateien in Freigaben durchsuchen, hoch- und herunterladen
 - **Ordner-Upload** per Button (`webkitdirectory`)
-- Ordner-Download direkt in Zielordner (HTTPS)
+- **Ordner-Download** als ZIP (nativer Browser-Download, auch für große Ordner)
 - **HTTPS standardmäßig aktiv** – HTTP leitet per 301 auf HTTPS um (`http_port` → `bind_port`)
 - Dashboard mit **Sicherheits-Warnungen** (Gast-Freigaben, fehlende Benutzer)
 - Downloads **direkt aus Freigaben** ohne Kopie auf die Systemplatte
@@ -191,7 +191,7 @@ Nach Installation:
 
 Die Web-UI läuft **standardmäßig nur über HTTPS** (selbstsigniertes Zertifikat). Anfragen auf `http_port` (Standard **8080**) werden per **301** auf `https://<host>:<bind_port>/` umgeleitet (Standard **8443**).
 
-Ordner-Downloads im Datei-Explorer nutzen `window.showDirectoryPicker` und funktionieren damit direkt.
+**Ordner-Downloads** werden als **ZIP** per nativen Browser-Download gestartet (Fortschritt in der Browser-Download-Leiste).
 
 ```bash
 # Nach manueller Änderung oder Migration:
