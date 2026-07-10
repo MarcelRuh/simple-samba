@@ -331,6 +331,13 @@
     });
   }
 
+  function openDownloadDirectory(folderName) {
+    var pickerOpts = { mode: 'readwrite', startIn: 'downloads' };
+    return window.showDirectoryPicker(pickerOpts).then(function (dirHandle) {
+      return dirHandle.getDirectoryHandle(folderName, { create: true });
+    });
+  }
+
   function startFolderDownload(rel, folderName) {
     if (!canUseFolderPicker()) {
       startFolderZipDownload(rel, folderName);
@@ -341,19 +348,28 @@
       return;
     }
     downloadCancelled = false;
+    var handedOffToZip = false;
     setDownloadProgress(true, 0, 'Ordner wird vorbereitet …');
 
-    window.showDirectoryPicker({ mode: 'readwrite' })
-      .then(function (dirHandle) {
-        return dirHandle.getDirectoryHandle(folderName, { create: true });
+    openDownloadDirectory(folderName)
+      .catch(function (err) {
+        if (isDownloadAbort(err)) throw err;
+        if (err && err.name === 'AbortError') throw err;
+        handedOffToZip = true;
+        setDownloadProgress(false);
+        showToast('Zielordner nicht nutzbar – Download als ZIP.', 'info');
+        startFolderZipDownload(rel, folderName);
+        return null;
       })
       .then(function (rootHandle) {
+        if (!rootHandle || handedOffToZip) return;
         if (isDownloadAbort()) throw new DownloadAbortError();
         return fetchDownloadManifest(rel).then(function (manifest) {
           return { root: rootHandle, manifest: manifest };
         });
       })
       .then(function (ctx) {
+        if (!ctx) return;
         var files = ctx.manifest.files || [];
         if (!files.length) {
           throw new Error('Der Ordner enthält keine Dateien.');
@@ -399,6 +415,7 @@
         showApiError(err);
       })
       .finally(function () {
+        if (handedOffToZip) return;
         if (downloadCancelled) {
           downloadCancelled = false;
           return;
@@ -559,12 +576,19 @@
 
   function updateHttpsHint() {
     var el = document.getElementById('files-download-hint');
+    var textEl = document.getElementById('files-download-hint-text');
     if (!el) return;
     if (canUseFolderPicker()) {
       el.hidden = true;
       return;
     }
     el.hidden = false;
+    if (!textEl) return;
+    if (!window.isSecureContext) {
+      textEl.innerHTML = 'Ordner werden als <strong>ZIP</strong> heruntergeladen. Für die Ordnerstruktur ist <strong>HTTPS</strong> erforderlich.';
+      return;
+    }
+    textEl.innerHTML = 'Ordner werden als <strong>ZIP</strong> heruntergeladen, weil dieser Browser keinen lokalen Zielordner unterstützt.';
   }
 
   function confirmDelete(entryName, entryType, rel) {
