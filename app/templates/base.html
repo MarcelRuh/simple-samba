@@ -77,16 +77,6 @@
       </form>
     </header>
     <main class="container {% block container_mod %}{% endblock %}">
-      {% if app_update and app_update.update_available and request.endpoint != 'system_updates' %}
-      <div class="notice notice-warn app-update-banner" role="status">
-        <span class="toast-icon" aria-hidden="true">↑</span>
-        <div>
-          <strong>App-Update verfügbar:</strong>
-          v{{ app_version }} → v{{ app_update.latest_version }}.
-          <a href="{{ url_for('system_updates') }}">Details &amp; Anleitung</a>
-        </div>
-      </div>
-      {% endif %}
 {% else %}
 <main class="login-shell">
 {% endif %}

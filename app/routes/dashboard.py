@@ -6,8 +6,6 @@ import os
 
 from flask import Flask, flash, render_template, url_for
 
-from app import __version__
-from app.app_updates import get_app_update_info
 from app.auth import login_required
 from app.config import load_config
 from app.security_checks import share_security_warnings
@@ -32,7 +30,6 @@ def _dashboard_warnings(
     overview_error: str | None,
     config_ok: bool | None,
     initial_password_exists: bool,
-    app_update,
     shares: list,
     config,
 ) -> list[dict[str, str]]:
@@ -97,15 +94,6 @@ def _dashboard_warnings(
             "action_label": "System-Updates",
         })
 
-    if app_update and getattr(app_update, "update_available", False):
-        latest = getattr(app_update, "latest_version", None) or "?"
-        warnings.append({
-            "level": "warn",
-            "message": f"App-Update verfügbar: v{latest}.",
-            "action_url": url_for("system_updates"),
-            "action_label": "Update anzeigen",
-        })
-
     if initial_password_exists:
         warnings.append({
             "level": "warn",
@@ -163,7 +151,6 @@ def register(app: Flask) -> None:
             (s for s in shares if s.enabled),
             key=lambda item: item.name.lower(),
         )
-        app_update_info = get_app_update_info(config, __version__)
         initial_password_exists = os.path.isfile(INITIAL_PASSWORD_FILE)
 
         return render_template(
@@ -189,7 +176,6 @@ def register(app: Flask) -> None:
                 overview_error=overview_error,
                 config_ok=config_ok,
                 initial_password_exists=initial_password_exists,
-                app_update=app_update_info,
                 shares=shares,
                 config=config,
             ),
