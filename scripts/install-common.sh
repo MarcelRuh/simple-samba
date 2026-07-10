@@ -285,6 +285,12 @@ set_permissions() {
         chmod 600 "${CONFIG_DIR}/initial-password.txt"
     fi
     mkdir -p /var/lib/samba-ui/apt-job /var/lib/samba-ui/app-update-job /var/lib/samba-ui/file-staging /var/lib/samba-ui/download-jobs
+    mkdir -p /var/log/simple-samba-ui
+    chown samba-ui:samba-ui /var/log/simple-samba-ui
+    chmod 750 /var/log/simple-samba-ui
+    touch /var/log/simple-samba-ui/audit.log
+    chown samba-ui:samba-ui /var/log/simple-samba-ui/audit.log
+    chmod 640 /var/log/simple-samba-ui/audit.log
     chown root:samba-ui /var/lib/samba-ui/apt-job /var/lib/samba-ui/app-update-job /var/lib/samba-ui/file-staging /var/lib/samba-ui/download-jobs
     chmod 750 /var/lib/samba-ui/apt-job /var/lib/samba-ui/app-update-job /var/lib/samba-ui/download-jobs
     chmod 770 /var/lib/samba-ui/file-staging

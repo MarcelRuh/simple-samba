@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from flask import Flask, flash, redirect, render_template, request, url_for
 
+from app.audit import audit_log
 from app.auth import login_required
 from app.samba import (
     SambaError,
@@ -36,6 +37,7 @@ def register(app: Flask) -> None:
                 username = validate_samba_username(request.form.get("username") or "")
                 password = validate_password(request.form.get("password") or "")
                 add_samba_user(username, password)
+                audit_log("user.create", username)
                 flash(f"Samba-Benutzer „{username}“ wurde angelegt.", "success")
                 return redirect(url_for("users_list"))
             except (ValidationError, SambaError) as exc:
@@ -56,6 +58,7 @@ def register(app: Flask) -> None:
             try:
                 password = validate_password(request.form.get("password") or "")
                 set_samba_password(username, password)
+                audit_log("user.password", username)
                 flash(f"Passwort für „{username}“ wurde geändert.", "success")
                 return redirect(url_for("users_list"))
             except (ValidationError, SambaError) as exc:
@@ -68,6 +71,7 @@ def register(app: Flask) -> None:
         try:
             username = validate_samba_username(username)
             delete_samba_user(username)
+            audit_log("user.delete", username)
             flash(f"Samba-Benutzer „{username}“ wurde gelöscht.", "success")
         except (ValidationError, SambaError) as exc:
             flash(str(exc), "error")

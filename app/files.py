@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from app.config import load_config
+from app.config import DEFAULT_MAX_FOLDER_DOWNLOAD_BYTES, DEFAULT_MAX_FOLDER_DOWNLOAD_FILES, load_config
 from app.path_security import safe_resolve_under_root
 from app.samba import Share, SambaError, _priv_request, get_share_by_name, read_shares
 from app.validators import ValidationError, validate_share_name
@@ -114,6 +114,22 @@ def stage_download(share_name: str, rel_path: str) -> dict[str, Any]:
         raise FileBrowserError("Ungültige Antwort vom Server.") from exc
 
 
+def validate_folder_download_manifest(manifest: dict[str, Any], config: dict[str, Any] | None = None) -> None:
+    cfg = config or load_config()
+    max_files = int(cfg.get("max_folder_download_files", DEFAULT_MAX_FOLDER_DOWNLOAD_FILES))
+    max_bytes = int(cfg.get("max_folder_download_bytes", DEFAULT_MAX_FOLDER_DOWNLOAD_BYTES))
+    file_count = int(manifest.get("total_files") or len(manifest.get("files") or []))
+    total_size = int(manifest.get("total_size") or 0)
+    if file_count > max_files:
+        raise FileBrowserError(
+            f"Ordner enthält zu viele Dateien für ZIP-Download (Limit: {max_files:,})."
+        )
+    if total_size > max_bytes:
+        raise FileBrowserError(
+            f"Ordner ist zu groß für ZIP-Download (Limit: {max_bytes // (1024 * 1024):,} MiB)."
+        )
+
+
 def download_manifest(share_name: str, rel_path: str) -> dict[str, Any]:
     config = load_config()
     shares = read_shares(config["samba_shares_file"])
@@ -125,9 +141,11 @@ def download_manifest(share_name: str, rel_path: str) -> dict[str, Any]:
     if not ok:
         raise FileBrowserError(output or "Ordnerinhalt konnte nicht gelesen werden.")
     try:
-        return json.loads(output)
+        manifest = json.loads(output)
     except json.JSONDecodeError as exc:
         raise FileBrowserError("Ungültige Antwort vom Server.") from exc
+    validate_folder_download_manifest(manifest, config)
+    return manifest
 
 
 def estimate_zip_download_size(manifest: dict[str, Any]) -> int:

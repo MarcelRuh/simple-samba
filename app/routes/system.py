@@ -5,6 +5,7 @@ from __future__ import annotations
 from flask import Flask, flash, jsonify, render_template, request
 
 from app.app_updates import get_app_update_info
+from app.audit import audit_log
 from app.auth import login_required
 from app.config import load_config
 from app.system import (
@@ -50,6 +51,7 @@ def register(app: Flask) -> None:
                 if action == "update":
                     last_output = apt_update()
                     last_success = True
+                    audit_log("system.apt_update")
                     flash("Paketlisten wurden aktualisiert.", "success")
                     try:
                         upgradable_packages, check_out = apt_list_upgradable()
@@ -119,6 +121,7 @@ def register(app: Flask) -> None:
     def system_updates_app_start():
         try:
             app_update_start()
+            audit_log("system.app_update")
             return jsonify({"ok": True, "status": "running"})
         except SystemUpdateError as exc:
             return jsonify({"ok": False, "error": str(exc)}), 400
@@ -136,6 +139,7 @@ def register(app: Flask) -> None:
     def system_updates_reboot():
         try:
             message = system_reboot()
+            audit_log("system.reboot")
             return jsonify({"ok": True, "message": message})
         except SystemUpdateError as exc:
             return jsonify({"ok": False, "error": str(exc)}), 400

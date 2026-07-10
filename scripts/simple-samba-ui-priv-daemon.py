@@ -643,8 +643,14 @@ def cmd_files_stage_download(path_str: str) -> tuple[bool, str]:
     return True, json.dumps(payload, ensure_ascii=False)
 
 
-def _collect_download_files(source: Path) -> list[dict]:
+def _collect_download_files(
+    source: Path,
+    *,
+    max_files: int,
+    max_bytes: int,
+) -> list[dict]:
     files: list[dict] = []
+    total_size = 0
     if source.is_file():
         info = source.stat()
         return [{"rel": source.name, "size": info.st_size}]
@@ -661,7 +667,25 @@ def _collect_download_files(source: Path) -> list[dict]:
             except OSError:
                 size = 0
             files.append({"rel": rel, "size": size})
+            total_size += size
+            if len(files) > max_files:
+                raise ValueError(
+                    f"Ordner enthält zu viele Dateien für ZIP-Download "
+                    f"(Limit: {max_files:,})."
+                )
+            if total_size > max_bytes:
+                raise ValueError(
+                    f"Ordner ist zu groß für ZIP-Download "
+                    f"(Limit: {max_bytes // (1024 * 1024):,} MiB)."
+                )
     return files
+
+
+def _download_limits() -> tuple[int, int]:
+    cfg = load_app_config()
+    max_files = int(cfg.get("max_folder_download_files", 5000) or 5000)
+    max_bytes = int(cfg.get("max_folder_download_bytes", 20 * 1024**3) or 20 * 1024**3)
+    return max(1, max_files), max(1, max_bytes)
 
 
 def cmd_files_download_manifest(path_str: str) -> tuple[bool, str]:
@@ -673,8 +697,11 @@ def cmd_files_download_manifest(path_str: str) -> tuple[bool, str]:
     if not source.is_dir():
         return False, "Pfad ist kein Ordner."
 
+    max_files, max_bytes = _download_limits()
     try:
-        files = _collect_download_files(source)
+        files = _collect_download_files(source, max_files=max_files, max_bytes=max_bytes)
+    except ValueError as exc:
+        return False, str(exc)
     except OSError as exc:
         return False, f"Ordner nicht lesbar: {exc}"
 
@@ -887,6 +914,82 @@ def cmd_write_shares(body: str) -> tuple[bool, str]:
         return False, f"Konfiguration gespeichert, aber Dienst-Neustart fehlgeschlagen.\n{apply_msg}"
 
     return True, f"Freigaben gespeichert und Samba neu gestartet. {dir_msg}"
+
+
+def cmd_backup_list() -> tuple[bool, str]:
+    BACKUP_DIR.mkdir(parents=True, exist_ok=True, mode=0o750)
+    items: list[dict] = []
+    patterns = ("smb-shares.conf.*.bak", "smb.conf.*.bak")
+    for pattern in patterns:
+        for path in sorted(BACKUP_DIR.glob(pattern), reverse=True):
+            try:
+                stat = path.stat()
+            except OSError:
+                continue
+            backup_type = "shares" if path.name.startswith("smb-shares.conf.") else "smb.conf"
+            items.append(
+                {
+                    "name": path.name,
+                    "type": backup_type,
+                    "size": stat.st_size,
+                    "mtime": int(stat.st_mtime),
+                }
+            )
+    items.sort(key=lambda item: item.get("mtime", 0), reverse=True)
+    return True, json.dumps({"backups": items}, ensure_ascii=False)
+
+
+def cmd_backup_restore(name: str) -> tuple[bool, str]:
+    safe = Path(name).name
+    if not safe or safe != (name or "").strip():
+        return False, "Ungültiger Backup-Name."
+    backup = (BACKUP_DIR / safe).resolve()
+    try:
+        backup.relative_to(BACKUP_DIR.resolve())
+    except ValueError:
+        return False, "Ungültiger Backup-Pfad."
+    if not backup.is_file():
+        return False, "Backup nicht gefunden."
+
+    if safe.startswith("smb-shares.conf."):
+        pre = create_backup()
+        try:
+            shutil.copy2(backup, TARGET)
+        except OSError as exc:
+            restore_backup(pre)
+            return False, f"Wiederherstellung fehlgeschlagen: {exc}"
+        result = run_cmd([TESTPARM, "-s"])
+        stdout = (result.stdout or "").strip()
+        stderr = (result.stderr or "").strip()
+        if result.returncode != 0:
+            restore_backup(pre)
+            return False, f"Konfigurationsprüfung fehlgeschlagen – Rollback.\n{stdout}\n{stderr}".strip()
+        ok_apply, apply_msg = apply_samba_after_config_change()
+        if not ok_apply:
+            return False, f"Backup wiederhergestellt, aber Samba-Neustart fehlgeschlagen.\n{apply_msg}"
+        return True, f"Freigabe-Konfiguration aus {safe} wiederhergestellt. {apply_msg}"
+
+    if safe.startswith("smb.conf."):
+        pre = _backup_smb_conf()
+        try:
+            shutil.copy2(backup, SMB_CONF)
+        except OSError as exc:
+            if pre and pre.is_file():
+                shutil.copy2(pre, SMB_CONF)
+            return False, f"Wiederherstellung fehlgeschlagen: {exc}"
+        result = run_cmd([TESTPARM, "-s"])
+        stdout = (result.stdout or "").strip()
+        stderr = (result.stderr or "").strip()
+        if result.returncode != 0:
+            if pre and pre.is_file():
+                shutil.copy2(pre, SMB_CONF)
+            return False, f"Konfigurationsprüfung fehlgeschlagen – Rollback.\n{stdout}\n{stderr}".strip()
+        ok_apply, apply_msg = apply_samba_after_config_change()
+        if not ok_apply:
+            return False, f"Backup wiederhergestellt, aber Samba-Neustart fehlgeschlagen.\n{apply_msg}"
+        return True, f"smb.conf aus {safe} wiederhergestellt. {apply_msg}"
+
+    return False, "Unbekannter Backup-Typ."
 
 
 def cmd_smbd_is_active() -> tuple[bool, str]:
@@ -1526,6 +1629,8 @@ def handle_request(line: str, body: bytes) -> tuple[bool, str]:
         "files-download-manifest": lambda: cmd_files_download_manifest(arg),
         "files-cleanup-staging": lambda: cmd_cleanup_staging(arg),
         "files-commit-upload": lambda: cmd_files_commit_upload(body_text),
+        "backup-list": lambda: cmd_backup_list(),
+        "backup-restore": lambda: cmd_backup_restore(arg),
     }
 
     handler = handlers.get(command)

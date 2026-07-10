@@ -68,6 +68,20 @@ def test_validate_browser_path_rejects_symlink(tmp_path, monkeypatch):
         daemon.validate_browser_path(str(share / "link"))
 
 
+def test_collect_download_files_enforces_limits(tmp_path):
+    daemon = _load_daemon_module()
+    root = tmp_path / "folder"
+    root.mkdir()
+    for i in range(5):
+        (root / f"file{i}.txt").write_text("x", encoding="utf-8")
+
+    files = daemon._collect_download_files(root, max_files=10, max_bytes=1024)
+    assert len(files) == 5
+
+    with pytest.raises(ValueError, match="zu viele Dateien"):
+        daemon._collect_download_files(root, max_files=3, max_bytes=1024)
+
+
 def test_cmd_system_reboot_requires_flag(monkeypatch):
     daemon = _load_daemon_module()
     monkeypatch.setattr(daemon, "_reboot_required", lambda: False)

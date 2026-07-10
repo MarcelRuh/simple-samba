@@ -2,7 +2,7 @@
 
 Interne Web-Verwaltung für Samba-Freigaben auf Debian – klein, ohne Reverse Proxy, ohne nginx/Caddy/Apache.
 
-**Aktuelle Version:** v1.17.5
+**Aktuelle Version:** v1.18.0
 
 ## Screenshots
 
@@ -35,6 +35,9 @@ Interne Web-Verwaltung für Samba-Freigaben auf Debian – klein, ohne Reverse P
 - Downloads **direkt aus Freigaben** ohne Kopie auf die Systemplatte
 - Datei-Explorer: **Sortierung** (Name, Größe, Datum)
 - Konfigurierbares **Upload-Limit** (`max_upload_bytes` in `config.json`)
+- Konfigurierbare **ZIP-Download-Limits** (`max_folder_download_files`, `max_folder_download_bytes`)
+- **Audit-Protokoll** – protokolliert Admin-Aktionen (Login, Freigaben, Dateien, Updates)
+- **Backup-Wiederherstellung** – smb-shares.conf und smb.conf aus der UI wiederherstellen
 - CSRF-Schutz
 - Privilege-Daemon über Unix-Socket (kein sudo)
 
@@ -185,6 +188,8 @@ Nach Installation:
 | `/opt/simple-samba-ui/` | App + Python-venv |
 | `/etc/simple-samba-ui/config.json` | Konfiguration (chmod 600) |
 | `/etc/samba/smb-shares.conf` | Verwaltete Freigaben |
+| `/var/backups/simple-samba-ui/` | Konfigurations-Backups |
+| `/var/log/simple-samba-ui/audit.log` | Audit-Protokoll |
 | `/run/simple-samba-ui/priv.sock` | Privilege-Socket |
 
 ## HTTPS (Standard)
@@ -207,6 +212,8 @@ Relevante `config.json`-Felder:
 | `tls_enabled` | `true` | HTTPS erforderlich |
 | `bind_port` | `8443` | HTTPS-Port (Gunicorn) |
 | `http_port` | `8080` | HTTP-Redirect-Port |
+| `max_folder_download_files` | `5000` | Max. Dateien pro Ordner-ZIP |
+| `max_folder_download_bytes` | `21474836480` (20 GiB) | Max. Gesamtgröße pro Ordner-ZIP |
 
 ## Sicherheit
 

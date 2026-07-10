@@ -46,6 +46,8 @@
         <button type="submit" class="btn btn-danger btn-sm">Neustart</button>
       </form>
       <a href="{{ url_for('config_check_page') }}" class="btn btn-secondary btn-sm">Konfiguration prüfen</a>
+      <a href="{{ url_for('audit_log_page') }}" class="btn btn-secondary btn-sm">Protokoll</a>
+      <a href="{{ url_for('backups_page') }}" class="btn btn-secondary btn-sm">Backups</a>
     </div>
   </div>
   <pre class="output">{{ status.output or 'Keine Ausgabe.' }}</pre>

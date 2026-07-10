@@ -7,6 +7,7 @@ import secrets
 
 from flask import Flask, Response, after_this_request, flash, jsonify, render_template, request, send_file
 
+from app.audit import audit_log
 from app.auth import login_required
 from app.config import load_config
 from app.files import (
@@ -142,6 +143,7 @@ def register(app: Flask) -> None:
             uploaded.save(staging)
             os.chmod(staging, 0o640)
             commit_upload(share_name, rel_path, staging, filename)
+            audit_log("file.upload", f"{share_name}:{rel_path}/{filename}")
             return jsonify({"ok": True, "name": filename})
         except (ValidationError, FileBrowserError) as exc:
             return jsonify({"error": str(exc)}), 400
@@ -161,6 +163,10 @@ def register(app: Flask) -> None:
                 str(data.get("path", "")),
                 str(data.get("name", "")),
             )
+            audit_log(
+                "file.mkdir",
+                f"{data.get('share', '')}:{data.get('path', '')}/{data.get('name', '')}",
+            )
             return jsonify({"ok": True})
         except (ValidationError, FileBrowserError) as exc:
             return jsonify({"error": str(exc)}), 400
@@ -171,6 +177,7 @@ def register(app: Flask) -> None:
         data = request.get_json(silent=True) or {}
         try:
             delete_path(str(data.get("share", "")), str(data.get("path", "")))
+            audit_log("file.delete", f"{data.get('share', '')}:{data.get('path', '')}")
             return jsonify({"ok": True})
         except (ValidationError, FileBrowserError) as exc:
             return jsonify({"error": str(exc)}), 400

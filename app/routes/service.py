@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from flask import Flask, flash, redirect, render_template, url_for
 
+from app.audit import audit_log
 from app.auth import login_required
 from app.samba import SambaError, reload_samba, restart_samba, run_testparm, service_status
 
@@ -26,6 +27,7 @@ def register(app: Flask) -> None:
     def service_reload():
         try:
             reload_samba()
+            audit_log("service.reload")
             flash("Samba-Dienst (smbd) wurde neu geladen.", "success")
         except SambaError as exc:
             flash(str(exc), "error")
@@ -36,6 +38,7 @@ def register(app: Flask) -> None:
     def service_restart():
         try:
             restart_samba()
+            audit_log("service.restart")
             flash("Samba-Dienst (smbd) wurde neu gestartet.", "success")
         except SambaError as exc:
             flash(str(exc), "error")

@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Protokoll – {{ app_name }}{% endblock %}
+{% block page_heading %}Audit-Protokoll{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Admin-Protokoll</h1>
+  <p class="lead">Letzte Aktionen in der Web-UI (max. 500 Einträge).</p>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <span class="card-title">{{ entries|length }} Einträge</span>
+    <a href="{{ url_for('backups_page') }}" class="btn btn-secondary btn-sm">Konfigurations-Backups</a>
+  </div>
+  {% if entries %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Zeit (UTC)</th>
+          <th>Benutzer</th>
+          <th>Aktion</th>
+          <th>Details</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for entry in entries %}
+        <tr>
+          <td><code>{{ entry.ts[:19]|replace('T', ' ') if entry.ts else '–' }}</code></td>
+          <td>{{ entry.user or '–' }}</td>
+          <td>{{ action_labels.get(entry.action, entry.action) }}</td>
+          <td>{{ entry.detail or '–' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <p>Noch keine protokollierten Aktionen.</p>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

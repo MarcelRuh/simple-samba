@@ -11,6 +11,8 @@ from typing import Any
 CONFIG_PATH = Path("/etc/simple-samba-ui/config.json")
 
 DEFAULT_MAX_UPLOAD_BYTES = 512 * 1024 * 1024
+DEFAULT_MAX_FOLDER_DOWNLOAD_FILES = 5000
+DEFAULT_MAX_FOLDER_DOWNLOAD_BYTES = 20 * 1024 * 1024 * 1024
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "bind_host": "127.0.0.1",
@@ -28,6 +30,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "update_check_interval_hours": 6,
     "source_clone_dir": "/usr/local/src/simple-samba",
     "max_upload_bytes": DEFAULT_MAX_UPLOAD_BYTES,
+    "max_folder_download_files": DEFAULT_MAX_FOLDER_DOWNLOAD_FILES,
+    "max_folder_download_bytes": DEFAULT_MAX_FOLDER_DOWNLOAD_BYTES,
     "tls_enabled": True,
     "tls_cert_file": "/etc/simple-samba-ui/tls/server.crt",
     "tls_key_file": "/etc/simple-samba-ui/tls/server.key",

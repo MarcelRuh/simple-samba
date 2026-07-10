@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import os
 
-from flask import Flask, redirect, render_template, request, url_for
+from flask import Flask, redirect, render_template, request, session, url_for
 
+from app.audit import audit_log
 from app.auth import (
     attempt_login,
     hash_password,
@@ -33,15 +34,19 @@ def register(app: Flask) -> None:
             password = request.form.get("password") or ""
             if attempt_login(username, password):
                 login_user(username)
+                audit_log("auth.login", "success", user=username)
                 next_url = safe_redirect_target(request.args.get("next"), url_for("index"))
                 return redirect(next_url)
+            audit_log("auth.login_failed", f"user={username}", user=username)
             error = "Ungültiger Benutzername oder Passwort."
         return render_template("login.html", error=error)
 
     @app.route("/logout", methods=["POST"])
     @login_required
     def logout():
+        user = session.get("username", "admin")
         logout_user()
+        audit_log("auth.logout", user=user)
         return redirect(url_for("login"))
 
     @app.route("/change-password", methods=["GET", "POST"])
@@ -64,6 +69,7 @@ def register(app: Flask) -> None:
                     validate_password(new_pw, "Neues Passwort")
                     config["admin_password_hash"] = hash_password(new_pw)
                     save_config(config)
+                    audit_log("auth.password_changed")
                     try:
                         os.unlink(INITIAL_PASSWORD_FILE)
                         initial_password_exists = False

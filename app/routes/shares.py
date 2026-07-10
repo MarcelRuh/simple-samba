@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from flask import Flask, flash, redirect, render_template, request, url_for
 
+from app.audit import audit_log
 from app.auth import login_required
 from app.config import load_config
 from app.network import resolve_access_host
@@ -54,6 +55,7 @@ def register(app: Flask) -> None:
                     raise ValidationError(f"Freigabe „{share.name}“ existiert bereits.")
                 shares.append(share)
                 write_shares(shares, config["samba_shares_file"], config["shares_base_path"])
+                audit_log("share.create", share.name)
                 host = resolve_access_host(config.get("bind_host", "0.0.0.0"))
                 flash(
                     f"Freigabe „{share.name}“ erstellt. Sofort zugreifbar unter "
@@ -88,6 +90,7 @@ def register(app: Flask) -> None:
                 shares = [s for s in shares if not share_names_equal(s.name, share_name)]
                 shares.append(updated)
                 write_shares(shares, config["samba_shares_file"], config["shares_base_path"])
+                audit_log("share.update", new_name)
                 flash(f"Freigabe „{new_name}“ wurde aktualisiert.", "success")
                 return redirect(url_for("shares_list"))
             except (ValidationError, SambaError) as exc:
@@ -115,6 +118,7 @@ def register(app: Flask) -> None:
             share_path = share.path
             shares = [s for s in shares if not share_names_equal(s.name, share_name)]
             write_shares(shares, config["samba_shares_file"], config["shares_base_path"])
+            audit_log("share.delete", f"{share.name} files={'yes' if delete_files else 'no'}")
 
             if delete_files:
                 delete_share_directory(share_path, config["shares_base_path"])
@@ -155,6 +159,7 @@ def register(app: Flask) -> None:
                 if not selected:
                     raise ValidationError("Bitte mindestens eine Freigabe auswählen.")
                 import_shares(selected, comment_out_source=comment_out)
+                audit_log("share.import", ",".join(selected))
                 flash(
                     f"{len(selected)} Freigabe(n) importiert und in smb-shares.conf übernommen.",
                     "success",
@@ -184,6 +189,7 @@ def register(app: Flask) -> None:
             share.enabled = not share.enabled
             write_shares(shares, config["samba_shares_file"], config["shares_base_path"])
             state = "aktiviert" if share.enabled else "deaktiviert"
+            audit_log("share.toggle", f"{share.name} {state}")
             flash(f"Freigabe „{share.name}“ wurde {state}.", "success")
         except SambaError as exc:
             flash(str(exc), "error")
