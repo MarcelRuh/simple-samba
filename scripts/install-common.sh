@@ -251,6 +251,16 @@ ensure_https_defaults() {
     chmod 600 "${CONFIG_FILE}"
 }
 
+ensure_git_identity() {
+    local src="${1:-${_INSTALL_COMMON_DIR}}"
+    local script="${src}/scripts/ensure-git-identity.sh"
+    [[ -f "${script}" ]] || return 0
+    chmod +x "${script}" 2>/dev/null || true
+    SIMPLE_SAMBA_GIT_NAME="${SIMPLE_SAMBA_GIT_NAME:-MarcelRuh}" \
+    SIMPLE_SAMBA_GIT_EMAIL="${SIMPLE_SAMBA_GIT_EMAIL:-96293418+MarcelRuh@users.noreply.github.com}" \
+        bash "${script}" || true
+}
+
 set_permissions() {
     info "Setze Berechtigungen …"
     chown -R samba-ui:samba-ui "${INSTALL_DIR}"
@@ -262,6 +272,7 @@ set_permissions() {
     chmod 755 "${INSTALL_DIR}/scripts/start-web.sh" 2>/dev/null || true
     chmod 755 "${INSTALL_DIR}/scripts/http-redirect-server.py" 2>/dev/null || true
     chmod 755 "${INSTALL_DIR}/scripts/migrate-https-config.py" 2>/dev/null || true
+    chmod 755 "${INSTALL_DIR}/scripts/ensure-git-identity.sh" 2>/dev/null || true
     mkdir -p "${CONFIG_DIR}" "${BACKUP_DIR}"
     chown -R samba-ui:samba-ui "${CONFIG_DIR}"
     chmod 750 "${CONFIG_DIR}"

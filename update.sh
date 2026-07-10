@@ -23,6 +23,7 @@ ensure_https_defaults
 auto_import_smb_shares
 install_systemd_units "${SCRIPT_DIR}"
 set_permissions
+ensure_git_identity "${SCRIPT_DIR}"
 start_services
 systemctl restart smbd nmbd 2>/dev/null || true
 verify_installation

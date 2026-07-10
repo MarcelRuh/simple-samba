@@ -1,0 +1,10 @@
+#!/bin/bash
+# Entfernt Cursor-Co-Author-Zeilen aus Commit-Messages.
+set -euo pipefail
+
+msg_file="${1:?}"
+
+sed -i \
+	-e '/^Co-authored-by: Cursor <cursoragent@cursor.com>$/d' \
+	-e '/^Co-authored-by: cursoragent <cursoragent@cursor.com>$/d' \
+	"$msg_file"

@@ -105,6 +105,7 @@ auto_import_smb_shares
 
 install_systemd_units "${SCRIPT_DIR}"
 set_permissions
+ensure_git_identity "${SCRIPT_DIR}"
 start_services
 systemctl reload smbd 2>/dev/null || systemctl restart smbd
 verify_installation
